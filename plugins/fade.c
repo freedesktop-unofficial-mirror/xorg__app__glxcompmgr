@@ -51,6 +51,7 @@ typedef struct _FadeScreen {
 
     PreparePaintScreenProc preparePaintScreen;
     PaintWindowProc	   paintWindow;
+    DamageWindowRectProc   damageWindowRect;
 } FadeScreen;
 
 typedef struct _FadeWindow {
@@ -263,15 +264,14 @@ fadeHandleEvent (CompDisplay *d,
 	}
 	break;
     case MapNotify:
-	w = findWindowAtDisplay (d, event->xmap.window);
+	w = findWindowAtDisplay (d, event->xunmap.window);
 	if (w)
 	{
 	    FADE_WINDOW (w);
 
-	    if (!fw->direction)
-		fw->opacity = 1;
-
-	    fw->direction = 1;
+	    /* make sure any pending unmap are processed */
+	    if (fw->direction < 0)
+		unmapWindow (w);
 	}
     default:
 	break;
@@ -283,7 +283,33 @@ fadeHandleEvent (CompDisplay *d,
 }
 
 static Bool
-fadeInitDisplay (CompPlugin *p,
+fadeDamageWindowRect (CompWindow *w,
+		      Bool	 initial,
+		      BoxPtr     rect)
+{
+    Bool status;
+
+    FADE_SCREEN (w->screen);
+
+    if (initial)
+    {
+	FADE_WINDOW (w);
+
+	if (!fw->direction)
+	    fw->opacity = 1;
+
+	fw->direction = 1;
+    }
+
+    UNWRAP (fs, w->screen, damageWindowRect);
+    status = (*w->screen->damageWindowRect) (w, initial, rect);
+    WRAP (fs, w->screen, damageWindowRect, fadeDamageWindowRect);
+
+    return status;
+}
+
+static Bool
+fadeInitDisplay (CompPlugin  *p,
 		 CompDisplay *d)
 {
     FadeDisplay *fd;
@@ -345,6 +371,7 @@ fadeInitScreen (CompPlugin *p,
 
     WRAP (fs, s, preparePaintScreen, fadePreparePaintScreen);
     WRAP (fs, s, paintWindow, fadePaintWindow);
+    WRAP (fs, s, damageWindowRect, fadeDamageWindowRect);
 
     s->privates[fd->screenPrivateIndex].ptr = fs;
 
@@ -361,6 +388,7 @@ fadeFiniScreen (CompPlugin *p,
 
     UNWRAP (fs, s, preparePaintScreen);
     UNWRAP (fs, s, paintWindow);
+    UNWRAP (fs, s, damageWindowRect);
 
     free (fs);
 }

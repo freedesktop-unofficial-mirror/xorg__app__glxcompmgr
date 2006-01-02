@@ -220,6 +220,14 @@ getWindowOpacity (CompDisplay *display,
     return MAXSHORT;
 }
 
+static void
+setWindowMatrix (CompWindow *w)
+{
+    w->matrix = w->texture.matrix;
+    w->matrix.x0 -= (w->attrib.x * w->matrix.xx);
+    w->matrix.y0 -= (w->attrib.y * w->matrix.yy);
+}
+
 void
 bindWindow (CompWindow *w)
 {
@@ -257,6 +265,8 @@ bindWindow (CompWindow *w)
 		     "texture\n", programName, (int) w->id);
 	}
     }
+
+    setWindowMatrix (w);
 }
 
 void
@@ -290,14 +300,47 @@ freeWindow (CompWindow *w)
     if (w->privates)
 	free (w->privates);
 
+    if (w->vertices)
+	free (w->vertices);
+
+    if (w->indices)
+	free (w->indices);
+
+    if (lastFoundWindow == w)
+	lastFoundWindow = 0;
+
+    if (lastDamagedWindow == w)
+	lastDamagedWindow = 0;
+
     free (w);
+}
+
+Bool
+damageWindowRegion (CompWindow *w,
+		    Region     region)
+{
+    return FALSE;
+}
+
+Bool
+damageWindowRect (CompWindow *w,
+		  Bool       initial,
+		  BoxPtr     rect)
+{
+    return FALSE;
 }
 
 void
 addWindowDamage (CompWindow *w)
 {
-    if (w->attrib.map_state == IsViewable)
-	damageScreenRegion (w->screen, w->region);
+    if (w->screen->allDamaged)
+	return;
+
+    if (w->attrib.map_state == IsViewable && w->damaged)
+    {
+	if (!(*w->screen->damageWindowRegion) (w, w->region))
+	    damageScreenRegion (w->screen, w->region);
+    }
 }
 
 void
@@ -367,6 +410,13 @@ addWindow (CompScreen *screen,
     w->texture.name = 0;
     w->pixmap       = None;
     w->destroyed    = FALSE;
+    w->damaged      = FALSE;
+
+    w->vertices   = 0;
+    w->vertexSize = 0;
+    w->indices    = 0;
+    w->indexSize  = 0;
+    w->vCount     = 0;
 
     if (screen->windowPrivateLen)
     {
@@ -437,14 +487,12 @@ addWindow (CompScreen *screen,
 	bindWindow (w);
     }
 
-    w->invisible = WINDOW_INVISIBLE (w);
+    w->invisible = TRUE;
 
     if (w->type == w->screen->display->winDesktopAtom)
 	w->screen->desktopWindowCount++;
 
     windowInitPlugins (w);
-
-    addWindowDamage (w);
 }
 
 void
@@ -484,9 +532,8 @@ mapWindow (CompWindow *w)
 	w->screen->desktopWindowCount++;
 
     w->attrib.map_state = IsViewable;
-    w->invisible = WINDOW_INVISIBLE (w);
-
-    addWindowDamage (w);
+    w->invisible = TRUE;
+    w->damaged = FALSE;
 }
 
 void
@@ -501,7 +548,7 @@ unmapWindow (CompWindow *w)
     addWindowDamage (w);
 
     w->attrib.map_state = IsUnmapped;
-    w->invisible = WINDOW_INVISIBLE (w);
+    w->invisible = TRUE;
 
     releaseWindow (w);
 }
@@ -560,6 +607,8 @@ configureWindow (CompWindow	 *w,
 	w->attrib.x = ce->x;
 	w->attrib.y = ce->y;
 
+	setWindowMatrix (w);
+
 	damage = TRUE;
     }
     else
@@ -602,4 +651,6 @@ invisibleWindowMove (CompWindow *w,
     w->attrib.y += dy;
 
     XOffsetRegion (w->region, dx, dy);
+
+    setWindowMatrix (w);
 }

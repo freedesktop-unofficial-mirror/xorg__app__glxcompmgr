@@ -65,6 +65,7 @@ typedef struct _Model {
     float  steps;
     Vector translate;
     Vector scale;
+    Bool   transformed;
 } Model;
 
 #define WOBBLY_FRICTION_DEFAULT    2.5f
@@ -77,9 +78,13 @@ typedef struct _Model {
 #define WOBBLY_SPRING_K_MAX       10.0f
 #define WOBBLY_SPRING_K_PRECISION  0.1f
 
-#define WOBBLY_GRID_SIZE_DEFAULT  64
-#define WOBBLY_GRID_SIZE_MIN      16
-#define WOBBLY_GRID_SIZE_MAX      512
+#define WOBBLY_GRID_RESOLUTION_DEFAULT  8
+#define WOBBLY_GRID_RESOLUTION_MIN      1
+#define WOBBLY_GRID_RESOLUTION_MAX      64
+
+#define WOBBLY_MIN_GRID_SIZE_DEFAULT  8
+#define WOBBLY_MIN_GRID_SIZE_MIN      4
+#define WOBBLY_MIN_GRID_SIZE_MAX      128
 
 typedef enum {
     WobblyEffectNone = 0,
@@ -101,7 +106,7 @@ static WobblyEffect effectType[] = {
 
 #define NUM_EFFECT (sizeof (effectType) / sizeof (effectType[0]))
 
-#define WOBBLY_MAP_DEFAULT   (effectName[0])
+#define WOBBLY_MAP_DEFAULT   (effectName[2])
 #define WOBBLY_FOCUS_DEFAULT (effectName[0])
 
 static int displayPrivateIndex;
@@ -111,20 +116,24 @@ typedef struct _WobblyDisplay {
     HandleEventProc handleEvent;
 } WobblyDisplay;
 
-#define WOBBLY_SCREEN_OPTION_FRICTION     0
-#define WOBBLY_SCREEN_OPTION_SPRING_K     1
-#define WOBBLY_SCREEN_OPTION_GRID_SIZE    2
-#define WOBBLY_SCREEN_OPTION_MAP_EFFECT   3
-#define WOBBLY_SCREEN_OPTION_FOCUS_EFFECT 4
-#define WOBBLY_SCREEN_OPTION_NUM          5
+#define WOBBLY_SCREEN_OPTION_FRICTION        0
+#define WOBBLY_SCREEN_OPTION_SPRING_K        1
+#define WOBBLY_SCREEN_OPTION_GRID_RESOLUTION 2
+#define WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE   3
+#define WOBBLY_SCREEN_OPTION_MAP_EFFECT      4
+#define WOBBLY_SCREEN_OPTION_FOCUS_EFFECT    5
+#define WOBBLY_SCREEN_OPTION_NUM             6
 
 typedef struct _WobblyScreen {
-    int			    windowPrivateIndex;
-    PreparePaintScreenProc  preparePaintScreen;
-    DonePaintScreenProc     donePaintScreen;
-    PaintScreenProc	    paintScreen;
-    PaintWindowProc	    paintWindow;
-    InvisibleWindowMoveProc invisibleWindowMove;
+    int			     windowPrivateIndex;
+    PreparePaintScreenProc   preparePaintScreen;
+    DonePaintScreenProc      donePaintScreen;
+    PaintScreenProc	     paintScreen;
+    PaintWindowProc	     paintWindow;
+    DamageWindowRectProc     damageWindowRect;
+    AddWindowGeometryProc    addWindowGeometry;
+    DrawWindowGeometryProc   drawWindowGeometry;
+    InvisibleWindowMoveProc  invisibleWindowMove;
 
     CompOption opt[WOBBLY_SCREEN_OPTION_NUM];
 
@@ -135,12 +144,8 @@ typedef struct _WobblyScreen {
 } WobblyScreen;
 
 typedef struct _WobblyWindow {
-    Model    *model;
-    Bool     wobbly;
-    GLfloat  *vertices;
-    int      vertexSize;
-    GLushort *indices;
-    int      indexSize;
+    Model *model;
+    Bool  wobbly;
 } WobblyWindow;
 
 #define GET_WOBBLY_DISPLAY(d)				       \
@@ -195,7 +200,11 @@ wobblySetScreenOption (CompScreen      *screen,
 	if (compSetFloatOption (o, value))
 	    return TRUE;
 	break;
-    case WOBBLY_SCREEN_OPTION_GRID_SIZE:
+    case WOBBLY_SCREEN_OPTION_GRID_RESOLUTION:
+	if (compSetIntOption (o, value))
+	    return TRUE;
+	break;
+    case WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE:
 	if (compSetIntOption (o, value))
 	    return TRUE;
 	break;
@@ -260,14 +269,23 @@ wobblyScreenInitOptions (WobblyScreen *ws)
     o->rest.f.max	= WOBBLY_SPRING_K_MAX;
     o->rest.f.precision = WOBBLY_SPRING_K_PRECISION;
 
-    o = &ws->opt[WOBBLY_SCREEN_OPTION_GRID_SIZE];
-    o->name	  = "grid_size";
-    o->shortDesc  = "Grid Size";
+    o = &ws->opt[WOBBLY_SCREEN_OPTION_GRID_RESOLUTION];
+    o->name	  = "grid_resolution";
+    o->shortDesc  = "Grid Resolution";
     o->longDesc	  = "Vertex Grid Resolution";
     o->type	  = CompOptionTypeInt;
-    o->value.i	  = WOBBLY_GRID_SIZE_DEFAULT;
-    o->rest.i.min = WOBBLY_GRID_SIZE_MIN;
-    o->rest.i.max = WOBBLY_GRID_SIZE_MAX;
+    o->value.i	  = WOBBLY_GRID_RESOLUTION_DEFAULT;
+    o->rest.i.min = WOBBLY_GRID_RESOLUTION_MIN;
+    o->rest.i.max = WOBBLY_GRID_RESOLUTION_MAX;
+
+    o = &ws->opt[WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE];
+    o->name	  = "min_grid_size";
+    o->shortDesc  = "Minimum Grid Size";
+    o->longDesc	  = "Minimum Vertex Grid Size";
+    o->type	  = CompOptionTypeInt;
+    o->value.i	  = WOBBLY_MIN_GRID_SIZE_DEFAULT;
+    o->rest.i.min = WOBBLY_MIN_GRID_SIZE_MIN;
+    o->rest.i.max = WOBBLY_MIN_GRID_SIZE_MAX;
 
     o = &ws->opt[WOBBLY_SCREEN_OPTION_MAP_EFFECT];
     o->name	      = "map_effect";
@@ -555,6 +573,8 @@ createModel (int x,
     model->scale.x = 1.0f;
     model->scale.y = 1.0f;
 
+    model->transformed = FALSE;
+
     modelInitObjects (model, x, y, width, height);
     modelInitSprings (model, x, y, width, height);
 
@@ -788,6 +808,17 @@ isWobblyWin (CompWindow *w)
 	w->type == w->screen->display->winDockAtom)
 	return FALSE;
 
+    /* avoid tiny windows */
+    if (w->width == 1 && w->height == 1)
+	return FALSE;
+
+    /* avoid fullscreen windows */
+    if (w->attrib.x <= 0 &&
+	w->attrib.y <= 0 &&
+	w->attrib.x + w->width >= w->screen->width &&
+	w->attrib.y + w->height >= w->screen->height)
+	return FALSE;
+
     return TRUE;
 }
 
@@ -887,119 +918,80 @@ wobblyTransformWindow (CompWindow              *w,
 
 	    ww->wobbly = ws->wobblyWindows = TRUE;
 	}
+
+	if (ww->model->translate.x != 0.0f ||
+	    ww->model->translate.y != 0.0f ||
+	    ww->model->scale.x	   != 1.0f ||
+	    ww->model->scale.y	   != 1.0f)
+	    ww->model->transformed = 1;
+	else
+	    ww->model->transformed = 0;
     }
 }
 
-static Bool
-wobblyPaintWindow (CompWindow		   *w,
-		   const WindowPaintAttrib *attrib,
-		   Region		   region,
-		   unsigned int		   mask)
+static void
+wobblyAddWindowGeometry (CompWindow *w,
+			 CompMatrix *matrix,
+			 int	    nMatrix,
+			 Region     region,
+			 Region     clip)
 {
-    BoxPtr   pClip;
-    int      nClip, nVertices, nIndices;
-    GLushort *i, *indices;
-    GLfloat  *v, *vertices;
-    int      x1, y1, x2, y2;
-    float    width, height;
-    float    deformedX, deformedY;
-    int      x, y, iw, ih;
-
     WOBBLY_WINDOW (w);
     WOBBLY_SCREEN (w->screen);
 
-    if (ww->model)
-    {
-	if (attrib->xTranslate != ww->model->translate.x ||
-	    attrib->yTranslate != ww->model->translate.y ||
-	    attrib->xScale     != ww->model->scale.x     ||
-	    attrib->yScale     != ww->model->scale.y)
-	    wobblyTransformWindow (w, attrib);
-    }
-    else
-    {
-	if (attrib->xTranslate != 0.0f ||
-	    attrib->yTranslate != 0.0f ||
-	    attrib->xScale     != 1.0f ||
-	    attrib->yScale     != 1.0f)
-	{
-	    if (isWobblyWin (w))
-		wobblyTransformWindow (w, attrib);
-	}
-    }
-
     if (ww->wobbly)
     {
-	GLushort opacity;
-	int      gridSize;
-
-	if (!region->numRects)
-	    return TRUE;
-
-	if (w->destroyed || w->attrib.map_state != IsViewable)
-	    return TRUE;
-
-	if (mask & PAINT_WINDOW_SOLID_MASK)
-	{
-	    if (w->alpha)
-		return FALSE;
-
-	    opacity = MULTIPLY_USHORT (w->opacity, attrib->opacity);
-	    if (opacity != OPAQUE)
-		return FALSE;
-	}
-	else if (mask & PAINT_WINDOW_TRANSLUCENT_MASK)
-	{
-	    opacity = MULTIPLY_USHORT (w->opacity, attrib->opacity);
-	    if (!w->alpha && opacity == OPAQUE)
-		return FALSE;
-	}
-	else
-	{
-	    opacity = MULTIPLY_USHORT (w->opacity, attrib->opacity);
-	    if (w->alpha || opacity != OPAQUE)
-		mask |= PAINT_WINDOW_TRANSLUCENT_MASK;
-	    else
-		mask |= PAINT_WINDOW_SOLID_MASK;
-	}
-
-	gridSize = ws->opt[WOBBLY_SCREEN_OPTION_GRID_SIZE].value.i;
-
-	if (!w->pixmap)
-	    bindWindow (w);
+	BoxPtr   pClip;
+	int      nClip, nVertices, nIndices;
+	GLushort *i;
+	GLfloat  *v;
+	int      x1, y1, x2, y2;
+	float    width, height;
+	float    deformedX, deformedY;
+	int      x, y, iw, ih;
+	int      vSize, it;
+	int      gridW, gridH;
 
 	width  = w->width;
 	height = w->height;
 
-	nClip = w->region->numRects;
-	pClip = w->region->rects;
+	gridW = width / ws->opt[WOBBLY_SCREEN_OPTION_GRID_RESOLUTION].value.i;
+	if (gridW < ws->opt[WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE].value.i)
+	    gridW = ws->opt[WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE].value.i;
 
-	nVertices = 0;
-	nIndices = 0;
+	gridH = height / ws->opt[WOBBLY_SCREEN_OPTION_GRID_RESOLUTION].value.i;
+	if (gridH < ws->opt[WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE].value.i)
+	    gridH = ws->opt[WOBBLY_SCREEN_OPTION_MIN_GRID_SIZE].value.i;
 
-	i = ww->indices;
-	v = ww->vertices;
+	nClip = region->numRects;
+	pClip = region->rects;
+
+	w->texUnits = nMatrix;
+
+	vSize = 2 + nMatrix * 2;
+
+	nVertices = w->vCount;
+	nIndices  = w->vCount;
+
+	v = w->vertices + (nVertices * vSize);
+	i = w->indices  + nIndices;
 
 	while (nClip--)
 	{
-	    x1 = pClip->x1 - w->attrib.x;
-	    y1 = pClip->y1 - w->attrib.y;
-	    x2 = pClip->x2 - w->attrib.x;
-	    y2 = pClip->y2 - w->attrib.y;
+	    x1 = pClip->x1;
+	    y1 = pClip->y1;
+	    x2 = pClip->x2;
+	    y2 = pClip->y2;
 
-	    iw = ((x2 - x1 - 1) / gridSize) + 1;
-	    ih = ((y2 - y1 - 1) / gridSize) + 1;
+	    iw = ((x2 - x1 - 1) / gridW) + 1;
+	    ih = ((y2 - y1 - 1) / gridH) + 1;
 
-	    if (nIndices + (iw * ih * 4) > ww->indexSize)
+	    if (nIndices + (iw * ih * 4) > w->indexSize)
 	    {
-		indices = realloc (ww->indices, sizeof (GLushort) *
-				   (ww->indexSize + (iw * ih * 4)));
-		if (!indices)
-		    return FALSE;
+		if (!moreWindowIndices (w, nIndices + (iw * ih * 4)))
+		    return;
 
-		ww->indices = indices;
-		ww->indexSize += iw * ih * 4;
-		i = ww->indices + nIndices;
+		i = w->indices + nIndices;
 	    }
 
 	    iw++;
@@ -1018,35 +1010,36 @@ wobblyPaintWindow (CompWindow		   *w,
 		}
 	    }
 
-	    if (((nVertices + iw * ih) * 4) > ww->vertexSize)
+	    if (((nVertices + iw * ih) * vSize) > w->vertexSize)
 	    {
-		vertices = realloc (ww->vertices,
-				    sizeof (GLfloat) *
-				    (ww->vertexSize + (iw * ih * 4)));
-		if (!vertices)
-		    return FALSE;
+		if (!moreWindowVertices (w, (nVertices + iw * ih) * vSize))
+		    return;
 
-		ww->vertices = vertices;
-		ww->vertexSize += iw * ih * 4;
-		v = ww->vertices + (nVertices * 4);
+		v = w->vertices + (nVertices * vSize);
 	    }
 
-	    for (y = y1;; y += gridSize)
+	    for (y = y1;; y += gridH)
 	    {
 		if (y > y2)
 		    y = y2;
 
-		for (x = x1;; x += gridSize)
+		for (x = x1;; x += gridW)
 		{
 		    if (x > x2)
 			x = x2;
 
 		    bezierPatchEvaluate (ww->model,
-					 x / width, y / height,
-					 &deformedX, &deformedY);
+					 (x - w->attrib.x) / width,
+					 (y - w->attrib.y) / height,
+					 &deformedX,
+					 &deformedY);
 
-		    *v++ = X_WINDOW_TO_TEXTURE_SPACE (w, x);
-		    *v++ = Y_WINDOW_TO_TEXTURE_SPACE (w, y);
+		    for (it = 0; it < nMatrix; it++)
+		    {
+			*v++ = COMP_TEX_COORD_X (&matrix[it], x, y);
+			*v++ = COMP_TEX_COORD_Y (&matrix[it], x, y);
+		    }
+
 		    *v++ = deformedX;
 		    *v++ = deformedY;
 
@@ -1063,47 +1056,100 @@ wobblyPaintWindow (CompWindow		   *w,
 	    pClip++;
 	}
 
-	glTexCoordPointer (2, GL_FLOAT, sizeof (GLfloat) * 4, ww->vertices);
-	glVertexPointer (2, GL_FLOAT, sizeof (GLfloat) * 4, ww->vertices + 2);
-
-	if (mask & PAINT_WINDOW_TRANSLUCENT_MASK)
-	{
-	    glEnable (GL_BLEND);
-	    if (opacity != OPAQUE)
-	    {
-		glTexEnvi (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-		glColor4us (opacity, opacity, opacity, opacity);
-	    }
-	}
-
-	enableTexture (w->screen, &w->texture, COMP_TEXTURE_FILTER_GOOD);
-	glDrawElements (GL_QUADS, nIndices, GL_UNSIGNED_SHORT, ww->indices);
-	disableTexture (&w->texture);
-
-	if (mask & PAINT_WINDOW_TRANSLUCENT_MASK)
-	{
-	    if (opacity != OPAQUE)
-	    {
-		glColor4usv (defaultColor);
-		glTexEnvi (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
-	    }
-	    glDisable (GL_BLEND);
-	}
+	w->vCount = nIndices;
     }
     else
     {
-	Bool status;
+	UNWRAP (ws, w->screen, addWindowGeometry);
+	(*w->screen->addWindowGeometry) (w, matrix, nMatrix, region, clip);
+	WRAP (ws, w->screen, addWindowGeometry, wobblyAddWindowGeometry);
+    }
+}
 
+static void
+wobblyDrawWindowGeometry (CompWindow *w)
+{
+    WOBBLY_WINDOW (w);
+
+    if (ww->wobbly)
+    {
+	int     texUnit = w->texUnits;
+	int     currentTexUnit = 0;
+	int     stride = (1 + texUnit) * 2;
+	GLfloat *vertices = w->vertices + (stride - 2);
+
+	stride *= sizeof (GLfloat);
+
+	glVertexPointer (2, GL_FLOAT, stride, vertices);
+
+	while (texUnit--)
+	{
+	    if (texUnit != currentTexUnit)
+	    {
+		w->screen->clientActiveTexture (GL_TEXTURE0_ARB + texUnit);
+		currentTexUnit = texUnit;
+	    }
+	    vertices -= 2;
+	    glTexCoordPointer (2, GL_FLOAT, stride, vertices);
+	}
+
+	glDrawElements (GL_QUADS, w->vCount, GL_UNSIGNED_SHORT, w->indices);
+    }
+    else
+    {
 	WOBBLY_SCREEN (w->screen);
 
-	UNWRAP (ws, w->screen, paintWindow);
-	status = (*w->screen->paintWindow) (w, attrib, region, mask);
-	WRAP (ws, w->screen, paintWindow, wobblyPaintWindow);
+	UNWRAP (ws, w->screen, drawWindowGeometry);
+	(*w->screen->drawWindowGeometry) (w);
+	WRAP (ws, w->screen, drawWindowGeometry, wobblyDrawWindowGeometry);
+    }
+}
 
-	return status;
+static Bool
+wobblyPaintWindow (CompWindow		   *w,
+		   const WindowPaintAttrib *attrib,
+		   Region		   region,
+		   unsigned int		   mask)
+{
+    Bool status;
+
+    WOBBLY_WINDOW (w);
+    WOBBLY_SCREEN (w->screen);
+
+    if (mask & PAINT_WINDOW_TRANSFORMED_MASK)
+    {
+	if (ww->model || isWobblyWin (w))
+	    wobblyTransformWindow (w, attrib);
+
+	if (ww->wobbly)
+	{
+	    WindowPaintAttrib wobblyAttrib = *attrib;
+
+	    wobblyAttrib.xTranslate = 0.0f;
+	    wobblyAttrib.yTranslate = 0.0f;
+	    wobblyAttrib.xScale     = 1.0f;
+	    wobblyAttrib.yScale     = 1.0f;
+
+	    UNWRAP (ws, w->screen, paintWindow);
+	    status = (*w->screen->paintWindow) (w, &wobblyAttrib, region, mask);
+	    WRAP (ws, w->screen, paintWindow, wobblyPaintWindow);
+
+	    return status;
+	}
+    }
+    else if (ww->model && ww->model->transformed)
+    {
+	wobblyTransformWindow (w, attrib);
     }
 
-    return TRUE;
+    if (ww->wobbly)
+	mask |= PAINT_WINDOW_TRANSFORMED_MASK;
+
+    UNWRAP (ws, w->screen, paintWindow);
+    status = (*w->screen->paintWindow) (w, attrib, region, mask);
+    WRAP (ws, w->screen, paintWindow, wobblyPaintWindow);
+
+    return status;
 }
 
 static void
@@ -1116,34 +1162,6 @@ wobblyHandleEvent (CompDisplay *d,
     WOBBLY_DISPLAY (d);
 
     switch (event->type) {
-    case MapNotify:
-	w = findWindowAtDisplay (d, event->xmap.window);
-	if (w && isWobblyWin (w))
-	{
-	    WOBBLY_WINDOW (w);
-	    WOBBLY_SCREEN (w->screen);
-
-	    if (ws->mapEffect && wobblyEnsureModel (w))
-	    {
-		switch (ws->mapEffect) {
-		case WobblyEffectExplode:
-		    modelAdjustObjectsForExplosion (ww->model,
-						    w->attrib.x, w->attrib.y,
-						    w->width, w->height);
-		    break;
-		case WobblyEffectShiver:
-		    modelAdjustObjectsForShiver (ww->model,
-						 w->attrib.x, w->attrib.y,
-						 w->width, w->height);
-		default:
-		    break;
-		}
-
-		ww->wobbly = ws->wobblyWindows = TRUE;
-		damageScreen (w->screen);
-	    }
-	}
-	break;
     case ConfigureNotify:
 	w = findWindowAtDisplay (d, event->xmap.window);
 	if (w && isWobblyWin (w))
@@ -1163,7 +1181,8 @@ wobblyHandleEvent (CompDisplay *d,
 		height = event->xconfigure.height;
 		height += event->xconfigure.border_width * 2;
 
-		if (w->attrib.map_state == IsViewable && wobblyEnsureModel (w))
+		if (w->damaged && w->attrib.map_state == IsViewable &&
+		    wobblyEnsureModel (w))
 		{
 		    modelSetMiddleAnchor (ww->model,
 					  w->attrib.x, w->attrib.y,
@@ -1193,7 +1212,8 @@ wobblyHandleEvent (CompDisplay *d,
 	    {
 		WOBBLY_WINDOW (w);
 
-		if (w->attrib.map_state == IsViewable && wobblyEnsureModel (w))
+		if (w->damaged && w->attrib.map_state == IsViewable &&
+		    wobblyEnsureModel (w))
 		{
 		    wobblyMoveWindow (w,
 				      event->xconfigure.x - w->attrib.x,
@@ -1271,6 +1291,51 @@ wobblyHandleEvent (CompDisplay *d,
     default:
 	break;
     }
+}
+
+static Bool
+wobblyDamageWindowRect (CompWindow *w,
+			Bool	   initial,
+			BoxPtr     rect)
+{
+    Bool status;
+
+    WOBBLY_SCREEN (w->screen);
+
+    if (initial)
+    {
+	if (isWobblyWin (w))
+	{
+	    WOBBLY_WINDOW (w);
+	    WOBBLY_SCREEN (w->screen);
+
+	    if (ws->mapEffect && wobblyEnsureModel (w))
+	    {
+		switch (ws->mapEffect) {
+		case WobblyEffectExplode:
+		    modelAdjustObjectsForExplosion (ww->model,
+						    w->attrib.x, w->attrib.y,
+						    w->width, w->height);
+		    break;
+		case WobblyEffectShiver:
+		    modelAdjustObjectsForShiver (ww->model,
+						 w->attrib.x, w->attrib.y,
+						 w->width, w->height);
+		default:
+		    break;
+		}
+
+		ww->wobbly = ws->wobblyWindows = TRUE;
+		damageScreen (w->screen);
+	    }
+	}
+    }
+
+    UNWRAP (ws, w->screen, damageWindowRect);
+    status = (*w->screen->damageWindowRect) (w, initial, rect);
+    WRAP (ws, w->screen, damageWindowRect, wobblyDamageWindowRect);
+
+    return status;
 }
 
 static Bool
@@ -1372,7 +1437,7 @@ wobblyInitScreen (CompPlugin *p,
     ws->wobblyWindows = FALSE;
 
     ws->mapEffect   = WobblyEffectShiver;
-    ws->focusEffect = WobblyEffectShiver;
+    ws->focusEffect = WobblyEffectNone;
 
     wobblyScreenInitOptions (ws);
 
@@ -1380,6 +1445,9 @@ wobblyInitScreen (CompPlugin *p,
     WRAP (ws, s, donePaintScreen, wobblyDonePaintScreen);
     WRAP (ws, s, paintScreen, wobblyPaintScreen);
     WRAP (ws, s, paintWindow, wobblyPaintWindow);
+    WRAP (ws, s, damageWindowRect, wobblyDamageWindowRect);
+    WRAP (ws, s, addWindowGeometry, wobblyAddWindowGeometry);
+    WRAP (ws, s, drawWindowGeometry, wobblyDrawWindowGeometry);
     WRAP (ws, s, invisibleWindowMove, wobblyInvisibleWindowMove);
 
     s->privates[wd->screenPrivateIndex].ptr = ws;
@@ -1402,6 +1470,9 @@ wobblyFiniScreen (CompPlugin *p,
     UNWRAP (ws, s, donePaintScreen);
     UNWRAP (ws, s, paintScreen);
     UNWRAP (ws, s, paintWindow);
+    UNWRAP (ws, s, damageWindowRect);
+    UNWRAP (ws, s, addWindowGeometry);
+    UNWRAP (ws, s, drawWindowGeometry);
     UNWRAP (ws, s, invisibleWindowMove);
 
     free (ws);
@@ -1419,12 +1490,6 @@ wobblyInitWindow (CompPlugin *p,
     if (!ww)
 	return FALSE;
 
-    ww->vertices   = 0;
-    ww->vertexSize = 0;
-
-    ww->indices   = 0;
-    ww->indexSize = 0;
-
     ww->model  = 0;
     ww->wobbly = FALSE;
 
@@ -1438,12 +1503,6 @@ wobblyFiniWindow (CompPlugin *p,
 		  CompWindow *w)
 {
     WOBBLY_WINDOW (w);
-
-    if (ww->vertices)
-	free (ww->vertices);
-
-    if (ww->indices)
-	free (ww->indices);
 
     if (ww->model)
     {

@@ -39,6 +39,7 @@ char *backgroundImage = "background.png";
 char *windowImage = "window.png";
 
 REGION   emptyRegion;
+REGION   infiniteRegion;
 GLushort defaultColor[4] = { 0, 0, 0, 0 };
 Window   currentRoot = 0;
 
@@ -47,6 +48,9 @@ char *defaultTextureFilter = "Good";
 
 Bool testMode = FALSE;
 Bool restartSignal = FALSE;
+
+CompWindow *lastFoundWindow = 0;
+CompWindow *lastDamagedWindow = 0;
 
 static void
 usage (void)
@@ -90,6 +94,13 @@ main (int argc, char **argv)
     emptyRegion.extents.x2 = 0;
     emptyRegion.extents.y2 = 0;
     emptyRegion.size = 0;
+
+    infiniteRegion.rects = &infiniteRegion.extents;
+    infiniteRegion.numRects = 1;
+    infiniteRegion.extents.x1 = MINSHORT;
+    infiniteRegion.extents.y1 = MINSHORT;
+    infiniteRegion.extents.x2 = MAXSHORT;
+    infiniteRegion.extents.y2 = MAXSHORT;
 
     for (i = 1; i < argc; i++)
     {

@@ -86,8 +86,14 @@ paintTransformedScreen (CompScreen		*screen,
 	    glEnable (GL_STENCIL_TEST);
 
 	    for (w = screen->windows; w; w = w->next)
-		(*screen->paintWindow) (w, wAttrib, &screen->region,
-					windowMask);
+	    {
+		if (w->destroyed || w->attrib.map_state != IsViewable)
+		    continue;
+
+		if (w->damaged)
+		    (*screen->paintWindow) (w, wAttrib, &screen->region,
+					    windowMask);
+	    }
 
 	    glDisable (GL_STENCIL_TEST);
 
@@ -102,7 +108,13 @@ paintTransformedScreen (CompScreen		*screen,
     (*screen->paintBackground) (screen, &screen->region, backgroundMask);
 
     for (w = screen->windows; w; w = w->next)
-	(*screen->paintWindow) (w, wAttrib, &screen->region, windowMask);
+    {
+	if (w->destroyed || w->attrib.map_state != IsViewable)
+	    continue;
+
+	if (w->damaged)
+	    (*screen->paintWindow) (w, wAttrib, &screen->region, windowMask);
+    }
 
     glPopMatrix ();
 }
@@ -164,7 +176,7 @@ paintScreen (CompScreen		     *screen,
     /* paint solid windows */
     for (w = screen->reverseWindows; w; w = w->prev)
     {
-	if (w->invisible)
+	if (w->destroyed || w->invisible)
 	    continue;
 
 	if ((*screen->paintWindow) (w, wAttrib, tmpRegion,
@@ -173,18 +185,23 @@ paintScreen (CompScreen		     *screen,
 
 	/* copy region */
 	XSubtractRegion (tmpRegion, &emptyRegion, w->clip);
+
+	if (!tmpRegion->numRects)
+	    break;
     }
 
-    (*screen->paintBackground) (screen, tmpRegion, 0);
+    if (tmpRegion->numRects)
+	(*screen->paintBackground) (screen, tmpRegion, 0);
 
     /* paint translucent windows */
     for (w = screen->windows; w; w = w->next)
     {
-	if (w->invisible)
+	if (w->destroyed || w->invisible)
 	    continue;
 
-	(*screen->paintWindow) (w, wAttrib, w->clip,
-				PAINT_WINDOW_TRANSLUCENT_MASK);
+	if (w->clip->numRects)
+	    (*screen->paintWindow) (w, wAttrib, w->clip,
+				    PAINT_WINDOW_TRANSLUCENT_MASK);
     }
 
     glPopMatrix ();
@@ -192,28 +209,216 @@ paintScreen (CompScreen		     *screen,
     return TRUE;
 }
 
-#define ADD_QUAD(data, w, x1, y1, x2, y2)	   \
-    if (!(w)->pixmap)				   \
-	bindWindow (w);				   \
-    *(data)++ = X_WINDOW_TO_TEXTURE_SPACE (w, x1); \
-    *(data)++ = Y_WINDOW_TO_TEXTURE_SPACE (w, y2); \
-    *(data)++ = (x1);				   \
-    *(data)++ = (y2);				   \
-    *(data)++ = X_WINDOW_TO_TEXTURE_SPACE (w, x2); \
-    *(data)++ = Y_WINDOW_TO_TEXTURE_SPACE (w, y2); \
-    *(data)++ = (x2);				   \
-    *(data)++ = (y2);				   \
-    *(data)++ = X_WINDOW_TO_TEXTURE_SPACE (w, x2); \
-    *(data)++ = Y_WINDOW_TO_TEXTURE_SPACE (w, y1); \
-    *(data)++ = (x2);				   \
-    *(data)++ = (y1);				   \
-    *(data)++ = X_WINDOW_TO_TEXTURE_SPACE (w, x1); \
-    *(data)++ = Y_WINDOW_TO_TEXTURE_SPACE (w, y1); \
-    *(data)++ = (x1);				   \
+#define ADD_QUAD(data, m, n, x1, y1, x2, y2)	       \
+    for (it = 0; it < n; it++)			       \
+    {						       \
+	*(data)++ = COMP_TEX_COORD_X (&m[it], x1, y2); \
+	*(data)++ = COMP_TEX_COORD_Y (&m[it], x1, y2); \
+    }						       \
+    *(data)++ = (x1);				       \
+    *(data)++ = (y2);				       \
+    for (it = 0; it < n; it++)			       \
+    {						       \
+	*(data)++ = COMP_TEX_COORD_X (&m[it], x2, y2); \
+	*(data)++ = COMP_TEX_COORD_Y (&m[it], x2, y2); \
+    }						       \
+    *(data)++ = (x2);				       \
+    *(data)++ = (y2);				       \
+    for (it = 0; it < n; it++)			       \
+    {						       \
+	*(data)++ = COMP_TEX_COORD_X (&m[it], x2, y1); \
+	*(data)++ = COMP_TEX_COORD_Y (&m[it], x2, y1); \
+    }						       \
+    *(data)++ = (x2);				       \
+    *(data)++ = (y1);				       \
+    for (it = 0; it < n; it++)			       \
+    {						       \
+	*(data)++ = COMP_TEX_COORD_X (&m[it], x1, y1); \
+	*(data)++ = COMP_TEX_COORD_Y (&m[it], x1, y1); \
+    }						       \
+    *(data)++ = (x1);				       \
     *(data)++ = (y1)
 
-#define ADD_BOX(data, w, box)					   \
-    ADD_QUAD (data, w, (box)->x1, (box)->y1, (box)->x2, (box)->y2)
+Bool
+moreWindowVertices (CompWindow *w,
+		    int        newSize)
+{
+    if (newSize > w->vertexSize)
+    {
+	GLfloat *vertices;
+
+	vertices = realloc (w->vertices, sizeof (GLfloat) * newSize);
+	if (!vertices)
+	    return FALSE;
+
+	w->vertices = vertices;
+	w->vertexSize = newSize;
+    }
+
+    return TRUE;
+}
+
+Bool
+moreWindowIndices (CompWindow *w,
+		   int        newSize)
+{
+    if (newSize > w->indexSize)
+    {
+	GLushort *indices;
+
+	indices = realloc (w->indices, sizeof (GLushort) * newSize);
+	if (!indices)
+	    return FALSE;
+
+	w->indices = indices;
+	w->indexSize = newSize;
+    }
+
+    return TRUE;
+}
+
+void
+addWindowGeometry (CompWindow *w,
+		   CompMatrix *matrix,
+		   int	      nMatrix,
+		   Region     region,
+		   Region     clip)
+{
+    BoxRec full;
+
+    w->texUnits = nMatrix;
+
+    full = clip->extents;
+    if (region->extents.x1 > full.x1)
+	full.x1 = region->extents.x1;
+    if (region->extents.y1 > full.y1)
+	full.y1 = region->extents.y1;
+    if (region->extents.x2 < full.x2)
+	full.x2 = region->extents.x2;
+    if (region->extents.y2 < full.y2)
+	full.y2 = region->extents.y2;
+
+    if (full.x1 < full.x2 && full.y1 < full.y2)
+    {
+	BoxPtr  pBox;
+	int     nBox;
+	BoxPtr  pClip;
+	int     nClip;
+	BoxRec  cbox;
+	int     vSize;
+	int     n, it, x1, y1, x2, y2;
+	GLfloat *d;
+
+	pBox = region->rects;
+	nBox = region->numRects;
+
+	vSize = 2 + nMatrix * 2;
+
+	n = w->vCount / 4;
+
+	if ((n + nBox) * vSize * 4 > w->vertexSize)
+	{
+	    if (!moreWindowVertices (w, (n + nBox) * vSize * 4))
+		return;
+	}
+
+	d = w->vertices + (w->vCount * vSize);
+
+	while (nBox--)
+	{
+	    x1 = pBox->x1;
+	    y1 = pBox->y1;
+	    x2 = pBox->x2;
+	    y2 = pBox->y2;
+
+	    pBox++;
+
+	    if (x1 < full.x1)
+		x1 = full.x1;
+	    if (y1 < full.y1)
+		y1 = full.y1;
+	    if (x2 > full.x2)
+		x2 = full.x2;
+	    if (y2 > full.y2)
+		y2 = full.y2;
+
+	    if (x1 < x2 && y1 < y2)
+	    {
+		nClip = clip->numRects;
+
+		if (nClip == 1)
+		{
+		    ADD_QUAD (d, matrix, nMatrix, x1, y1, x2, y2);
+
+		    n++;
+		}
+		else
+		{
+		    pClip = clip->rects;
+
+		    if (((n + nClip) * vSize * 4) > w->vertexSize)
+		    {
+			if (!moreWindowVertices (w, (n + nClip) * vSize * 4))
+			    return;
+
+			d = w->vertices + (n * vSize * 4);
+		    }
+
+		    while (nClip--)
+		    {
+			cbox = *pClip;
+
+			pClip++;
+
+			if (cbox.x1 < x1)
+			    cbox.x1 = x1;
+			if (cbox.y1 < y1)
+			    cbox.y1 = y1;
+			if (cbox.x2 > x2)
+			    cbox.x2 = x2;
+			if (cbox.y2 > y2)
+			    cbox.y2 = y2;
+
+			if (cbox.x1 < cbox.x2 && cbox.y1 < cbox.y2)
+			{
+			    ADD_QUAD (d, matrix, nMatrix,
+				      cbox.x1, cbox.y1, cbox.x2, cbox.y2);
+
+			    n++;
+			}
+		    }
+		}
+	    }
+	}
+	w->vCount = n * 4;
+    }
+}
+
+void
+drawWindowGeometry (CompWindow *w)
+{
+    int     texUnit = w->texUnits;
+    int     currentTexUnit = 0;
+    int     stride = (1 + texUnit) * 2;
+    GLfloat *vertices = w->vertices + (stride - 2);
+
+    stride *= sizeof (GLfloat);
+
+    glVertexPointer (2, GL_FLOAT, stride, vertices);
+
+    while (texUnit--)
+    {
+	if (texUnit != currentTexUnit)
+	{
+	    w->screen->clientActiveTexture (GL_TEXTURE0_ARB + texUnit);
+	    currentTexUnit = texUnit;
+	}
+	vertices -= 2;
+	glTexCoordPointer (2, GL_FLOAT, stride, vertices);
+    }
+
+    glDrawArrays (GL_QUADS, 0, w->vCount);
+}
 
 Bool
 paintWindow (CompWindow		     *w,
@@ -221,17 +426,7 @@ paintWindow (CompWindow		     *w,
 	     Region		     region,
 	     unsigned int	     mask)
 {
-    BoxPtr   pClip;
-    int      nClip, n;
-    GLfloat  *data, *d;
     GLushort opacity;
-    int      x1, y1, x2, y2;
-
-    if (!region->numRects)
-	return TRUE;
-
-    if (w->destroyed || w->attrib.map_state != IsViewable)
-	return TRUE;
 
     if (mask & PAINT_WINDOW_SOLID_MASK)
     {
@@ -257,153 +452,16 @@ paintWindow (CompWindow		     *w,
 	    mask |= PAINT_WINDOW_SOLID_MASK;
     }
 
-    if (attrib->xTranslate != 0.0f ||
-	attrib->yTranslate != 0.0f ||
-	attrib->xScale	   != 1.0f ||
-	attrib->yScale	   != 1.0f)
+    if (!w->pixmap)
+	bindWindow (w);
+
+    if (mask & PAINT_WINDOW_TRANSFORMED_MASK)
+	region = &infiniteRegion;
+
+    w->vCount = 0;
+    (*w->screen->addWindowGeometry) (w, &w->matrix, 1, w->region, region);
+    if (w->vCount)
     {
-	nClip = w->region->numRects;
-	pClip = w->region->rects;
-
-	mask |= PAINT_WINDOW_ON_TRANSFORMED_SCREEN_MASK;
-
-	data = malloc (sizeof (GLfloat) * nClip * 16);
-	if (!data)
-	    return FALSE;
-
-	d = data;
-
-	n = nClip;
-	while (nClip--)
-	{
-	    x1 = pClip->x1 - w->attrib.x;
-	    y1 = pClip->y1 - w->attrib.y;
-	    x2 = pClip->x2 - w->attrib.x;
-	    y2 = pClip->y2 - w->attrib.y;
-
-	    ADD_QUAD (d, w, x1, y1, x2, y2);
-
-	    pClip++;
-	}
-    }
-    else
-    {
-	BoxRec clip, full;
-	BoxPtr pExtent = &region->extents;
-	BoxPtr pBox = region->rects;
-	int    nBox = region->numRects;
-	int    dataSize;
-
-	full.x1 = 0;
-	full.y1 = 0;
-	full.x2 = w->width;
-	full.y2 = w->height;
-
-	x1 = pExtent->x1 - w->attrib.x;
-	y1 = pExtent->y1 - w->attrib.y;
-	x2 = pExtent->x2 - w->attrib.x;
-	y2 = pExtent->y2 - w->attrib.y;
-
-	if (x1 > 0)
-	    full.x1 = x1;
-	if (y1 > 0)
-	    full.y1 = y1;
-	if (x2 < w->width)
-	    full.x2 = x2;
-	if (y2 < w->height)
-	    full.y2 = y2;
-
-	if (full.x1 >= full.x2 || full.y1 >= full.y2)
-	    return TRUE;
-
-	dataSize = nBox * 16;
-	data = malloc (sizeof (GLfloat) * dataSize);
-	if (!data)
-	    return FALSE;
-
-	d = data;
-	n = 0;
-
-	pBox = region->rects;
-	nBox = region->numRects;
-	while (nBox--)
-	{
-	    x1 = pBox->x1 - w->attrib.x;
-	    y1 = pBox->y1 - w->attrib.y;
-	    x2 = pBox->x2 - w->attrib.x;
-	    y2 = pBox->y2 - w->attrib.y;
-
-	    pBox++;
-
-	    if (x1 < full.x1)
-		x1 = full.x1;
-	    if (y1 < full.y1)
-		y1 = full.y1;
-	    if (x2 > full.x2)
-		x2 = full.x2;
-	    if (y2 > full.y2)
-		y2 = full.y2;
-
-	    if (x1 < x2 && y1 < y2)
-	    {
-		nClip = w->region->numRects;
-
-		if (nClip == 1)
-		{
-		    ADD_QUAD (d, w, x1, y1, x2, y2);
-
-		    n++;
-		}
-		else
-		{
-		    pClip = w->region->rects;
-
-		    while (nClip--)
-		    {
-			clip.x1 = pClip->x1 - w->attrib.x;
-			clip.y1 = pClip->y1 - w->attrib.y;
-			clip.x2 = pClip->x2 - w->attrib.x;
-			clip.y2 = pClip->y2 - w->attrib.y;
-
-			pClip++;
-
-			if (clip.x1 < x1)
-			    clip.x1 = x1;
-			if (clip.y1 < y1)
-			    clip.y1 = y1;
-			if (clip.x2 > x2)
-			    clip.x2 = x2;
-			if (clip.y2 > y2)
-			    clip.y2 = y2;
-
-			if (clip.x1 < clip.x2 && clip.y1 < clip.y2)
-			{
-			    if ((n << 4) == dataSize)
-			    {
-				dataSize <<= 2;
-				data = realloc (data,
-						sizeof (GLfloat) * dataSize);
-				if (!data)
-				    return FALSE;
-
-				d = data + (n * 16);
-			    }
-
-			    ADD_BOX (d, w, &clip);
-
-			    n++;
-			}
-		    }
-		}
-	    }
-	}
-    }
-
-    if (n)
-    {
-	glTexCoordPointer (2, GL_FLOAT, sizeof (GLfloat) * 4, data);
-	glVertexPointer (2, GL_FLOAT, sizeof (GLfloat) * 4, data + 2);
-
 	if (mask & PAINT_WINDOW_TRANSLUCENT_MASK)
 	{
 	    glEnable (GL_BLEND);
@@ -416,22 +474,25 @@ paintWindow (CompWindow		     *w,
 
 	glPushMatrix ();
 
-	if (mask & PAINT_WINDOW_ON_TRANSFORMED_SCREEN_MASK)
+	if (mask & PAINT_WINDOW_TRANSFORMED_MASK)
 	{
 	    glTranslatef (w->attrib.x + attrib->xTranslate,
 			  w->attrib.y + attrib->yTranslate, 0.0f);
 	    glScalef (attrib->xScale, attrib->yScale, 0.0f);
+	    glTranslatef (-w->attrib.x, -w->attrib.y, 0.0f);
 
+	    enableTexture (w->screen, &w->texture, COMP_TEXTURE_FILTER_GOOD);
+	}
+	else if (mask & PAINT_WINDOW_ON_TRANSFORMED_SCREEN_MASK)
+	{
 	    enableTexture (w->screen, &w->texture, COMP_TEXTURE_FILTER_GOOD);
 	}
 	else
 	{
-	    glTranslatef (w->attrib.x, w->attrib.y, 0.0f);
-
 	    enableTexture (w->screen, &w->texture, COMP_TEXTURE_FILTER_FAST);
 	}
 
-	glDrawArrays (GL_QUADS, 0, n * 4);
+	(*w->screen->drawWindowGeometry) (w);
 
 	disableTexture (&w->texture);
 
@@ -447,8 +508,6 @@ paintWindow (CompWindow		     *w,
 	    glDisable (GL_BLEND);
 	}
     }
-
-    free (data);
 
     return TRUE;
 }
@@ -491,26 +550,26 @@ paintBackground (CompScreen   *s,
     n = nBox;
     while (n--)
     {
-	*d++ = bg->dx * pBox->x1;
-	*d++ = bg->dy * (s->backgroundHeight - pBox->y2);
+	*d++ = COMP_TEX_COORD_X (&bg->matrix, pBox->x1, pBox->y2);
+	*d++ = COMP_TEX_COORD_Y (&bg->matrix, pBox->x1, pBox->y2);
 
 	*d++ = pBox->x1;
 	*d++ = pBox->y2;
 
-	*d++ = bg->dx * pBox->x2;
-	*d++ = bg->dy * (s->backgroundHeight - pBox->y2);
+	*d++ = COMP_TEX_COORD_X (&bg->matrix, pBox->x2, pBox->y2);
+	*d++ = COMP_TEX_COORD_Y (&bg->matrix, pBox->x2, pBox->y2);
 
 	*d++ = pBox->x2;
 	*d++ = pBox->y2;
 
-	*d++ = bg->dx * pBox->x2;
-	*d++ = bg->dy * (s->backgroundHeight - pBox->y1);
+	*d++ = COMP_TEX_COORD_X (&bg->matrix, pBox->x2, pBox->y1);
+	*d++ = COMP_TEX_COORD_Y (&bg->matrix, pBox->x2, pBox->y1);
 
 	*d++ = pBox->x2;
 	*d++ = pBox->y1;
 
-	*d++ = bg->dx * pBox->x1;
-	*d++ = bg->dy * (s->backgroundHeight - pBox->y1);
+	*d++ = COMP_TEX_COORD_X (&bg->matrix, pBox->x1, pBox->y1);
+	*d++ = COMP_TEX_COORD_Y (&bg->matrix, pBox->x1, pBox->y1);
 
 	*d++ = pBox->x1;
 	*d++ = pBox->y1;

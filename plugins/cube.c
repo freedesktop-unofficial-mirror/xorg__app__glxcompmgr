@@ -336,7 +336,9 @@ cubeTranslateWindows (CompScreen *s,
 		      int	 tx)
 {
     CompWindow *w;
+    int        m, wx;
 
+    tx = MOD (tx, s->width * 4);
     if (tx == 0)
 	return;
 
@@ -349,7 +351,15 @@ cubeTranslateWindows (CompScreen *s,
 	    w->type == s->display->winDockAtom)
 	    continue;
 
-	(*s->invisibleWindowMove) (w, tx, 0);
+	m = w->attrib.x + tx;
+	if (m < s->width * -3)
+	    wx = s->width * 4 + tx;
+	else if (m > s->width * 3)
+	    wx = tx - s->width * 4;
+	else
+	    wx = tx;
+
+	(*s->invisibleWindowMove) (w, wx, 0);
     }
 }
 
@@ -371,7 +381,7 @@ cubePaintTransformedScreen (CompScreen		    *s,
     if (sAttrib->xRotate > 0.0f)
     {
 	cs->xrotations = (int) sAttrib->xRotate / 90;
-	sa.xRotate = sAttrib->xRotate - (cs->xrotations * 90.0f);
+	sa.xRotate = (sAttrib->xRotate - cs->xrotations * 90.0f);
     }
     else
     {
@@ -399,12 +409,13 @@ cubePaintTransformedScreen (CompScreen		    *s,
     if (sAttrib->xRotate != 0.0f)
     {
 	xMove = cs->xrotations * s->width;
-	cubeTranslateWindows (s, xMove);
 
+	cubeTranslateWindows (s, xMove);
 	(*s->paintTransformedScreen) (s, &sa, wAttrib, mask);
+	cubeTranslateWindows (s, -xMove);
 
 	xMove += s->width;
-	cubeTranslateWindows (s, s->width);
+	cubeTranslateWindows (s, xMove);
 
 	cs->paintTopBottom = FALSE;
     }
@@ -448,8 +459,6 @@ cubePaintBackground (CompScreen   *s,
 
 	rot = 2 * cs->xrotations;
 
-#define MOD(a,b) ((a) < 0 ? ((b) - ((-(a) - 1) % (b))) - 1 : (a) % (b))
-
 	data[0] = cs->tc[MOD (0 - rot, 8)];
 	data[1] = cs->tc[MOD (1 - rot, 8)];
 	data[5] = cs->tc[MOD (2 - rot, 8)];
@@ -459,8 +468,6 @@ cubePaintBackground (CompScreen   *s,
 	data[11] = cs->tc[MOD (5 - rot, 8)];
 	data[15] = cs->tc[MOD (6 - rot, 8)];
 	data[16] = cs->tc[MOD (7 - rot, 8)];
-
-#undef MOD
 
 	first = 0;
 

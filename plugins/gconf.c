@@ -1,6 +1,6 @@
 /*
  * Copyright © 2005 Novell, Inc.
- * 
+ *
  * Permission to use, copy, modify, distribute, and sell this software
  * and its documentation for any purpose is hereby granted without
  * fee, provided that the above copyright notice appear in all copies
@@ -12,11 +12,11 @@
  * software for any purpose. It is provided "as is" without express or
  * implied warranty.
  *
- * NOVELL, INC. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, 
+ * NOVELL, INC. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
  * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
  * NO EVENT SHALL NOVELL, INC. BE LIABLE FOR ANY SPECIAL, INDIRECT OR
  * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
- * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, 
+ * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
  * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
@@ -68,7 +68,7 @@ typedef struct _GConfDisplay {
 
     GConfClient       *client;
     CompTimeoutHandle timeoutHandle;
-    
+
     InitPluginForDisplayProc      initPluginForDisplay;
     SetDisplayOptionProc	  setDisplayOption;
     SetDisplayOptionForPluginProc setDisplayOptionForPlugin;
@@ -163,7 +163,7 @@ gconfSetValue (CompDisplay     *d,
     } break;
     case CompOptionTypeBinding: {
 	guint modMask;
-	
+
 	if (value->bind.type == CompBindingTypeButton)
 	    modMask = value->bind.u.button.modifiers;
 	else
@@ -174,7 +174,7 @@ gconfSetValue (CompDisplay     *d,
 	    gchar *m, *mods = g_strdup ("");
 	    gchar *binding;
 	    gint  i;
-	    
+
 	    for (i = 0; i < N_MODIFIERS; i++)
 	    {
 		if (modMask & modifiers[i].modifier)
@@ -187,7 +187,7 @@ gconfSetValue (CompDisplay     *d,
 		    }
 		}
 	    }
-	    
+
 	    if (value->bind.type == CompBindingTypeButton)
 	    {
 		binding = g_strdup_printf ("%sButton%d", mods,
@@ -202,11 +202,11 @@ gconfSetValue (CompDisplay     *d,
 					   value->bind.u.key.keycode,
 					   0);
 		keyname = XKeysymToString (keysym);
-		
+
 		binding = g_strdup_printf ("%s%s", mods,
 					   (keyname) ? keyname : "??");
 	    }
-	    
+
 	    gconf_value_set_string (gvalue, binding);
 
 	    g_free (binding);
@@ -230,7 +230,7 @@ gconfSetOption (CompDisplay *d,
 {
     GConfValue *gvalue;
     gchar      *key;
-    
+
     GCONF_DISPLAY (d);
 
     if (plugin)
@@ -263,9 +263,9 @@ gconfSetOption (CompDisplay *d,
 	int	       i;
 
 	gvalue = gconf_value_new (GCONF_VALUE_LIST);
-	    
+
 	type = gconfTypeFromCompType (o->value.list.type);
-	    
+
 	for (i = 0; i < o->value.list.nValue; i++)
 	{
 	    gv = gconf_value_new (type);
@@ -288,7 +288,7 @@ gconfSetOption (CompDisplay *d,
     default:
 	break;
     }
-    
+
     g_free (key);
 }
 
@@ -328,9 +328,9 @@ gconfGetValue (CompDisplay     *d,
     {
 	const gchar *color;
 	gint        c[3];
-	    
+
 	color = gconf_value_get_string (gvalue);
-	    
+
 	if (sscanf (color, "#%2x%2x%2x", &c[0], &c[1], &c[2]) == 3)
 	{
 	    value->c[0] = c[0] * 256;
@@ -347,7 +347,7 @@ gconfGetValue (CompDisplay     *d,
 	gchar *binding, *ptr;
 	gint  i;
 	guint mods = 0;
-	    
+
 	binding = (gchar *) gconf_value_get_string (gvalue);
 	if (strcasecmp (binding, "disabled") == 0)
 	{
@@ -371,14 +371,14 @@ gconfGetValue (CompDisplay     *d,
 	    ptr = strrchr (binding, '>');
 	    if (ptr)
 		binding = ptr + 1;
-		    
+
 	    while (*binding && !isalpha (*binding))
 		binding++;
-		    
+
 	    if (strcmpskipifequal (&binding, "Button") == 0)
 	    {
 		gint button;
-			
+
 		if (sscanf (binding, "%d", &button) == 1)
 		{
 		    value->bind.type = CompBindingTypeButton;
@@ -391,26 +391,26 @@ gconfGetValue (CompDisplay     *d,
 	    else
 	    {
 		KeySym keysym;
-			
+
 		keysym = XStringToKeysym (binding);
 		if (keysym != NoSymbol)
 		{
 		    KeyCode keycode;
-			    
+
 		    keycode = XKeysymToKeycode (d->display, keysym);
 		    if (keycode)
 		    {
 			value->bind.type = CompBindingTypeKey;
 			value->bind.u.key.keycode = keycode;
 			value->bind.u.key.modifiers = mods;
-				
+
 			return TRUE;
 		    }
 		}
 	    }
 	}
     }
-    
+
     return FALSE;
 }
 
@@ -429,7 +429,7 @@ gconfGetOptionValue (CompDisplay *d,
 
     if (!entry)
 	return FALSE;
-    
+
     ptr = entry->key;
     if (strncmp (ptr, APP_NAME, strlen (APP_NAME)))
 	return FALSE;
@@ -453,13 +453,13 @@ gconfGetOptionValue (CompDisplay *d,
     if (strcmpskipifequal (&ptr, "/screen") == 0)
     {
 	int screenNum;
-	
+
 	screenNum = strtol (ptr, &ptr, 0);
 
 	for (s = d->screens; s; s = s->next)
 	    if (s->screenNum == screenNum)
 		break;
-	
+
 	if (!s || !ptr)
 	    return FALSE;
     }
@@ -468,19 +468,19 @@ gconfGetOptionValue (CompDisplay *d,
 
     if (strcmpskipifequal (&ptr, "/options/"))
 	return FALSE;
-    
+
     optionPtr = ptr;
     ptr = strchr (ptr, '/');
     if (!ptr)
 	return FALSE;
-    
+
     optionLen = ptr - optionPtr;
     if (optionLen < 1)
 	return FALSE;
 
     if (strcmp (ptr, "/value") != 0)
 	return FALSE;
-    
+
     if (pluginPtr)
     {
 	pluginPtr = g_strndup (pluginPtr, pluginLen);
@@ -518,7 +518,7 @@ gconfGetOptionValue (CompDisplay *d,
     {
 	GConfValue      *gvalue;
 	CompOptionValue value;
-	
+
 	gvalue = gconf_entry_get_value (entry);
 	if (gvalue)
 	{
@@ -555,7 +555,7 @@ gconfGetOptionValue (CompDisplay *d,
 						    o->value.list.type,
 						    (GConfValue *) list->data))
 				    status = FALSE;
-				
+
 				list = g_slist_next (list);
 			    }
 			}
@@ -570,7 +570,7 @@ gconfGetOptionValue (CompDisplay *d,
 	    {
 		status = gconfGetValue (d, &value, o->type, gvalue);
 	    }
-	    
+
 	    if (status)
 	    {
 		if (s)
@@ -603,7 +603,7 @@ gconfGetOptionValue (CompDisplay *d,
 	    }
 	}
     }
-    
+
     g_free (optionPtr);
     if (pluginPtr)
 	g_free (pluginPtr);
@@ -640,14 +640,14 @@ gconfInitOption (CompDisplay *d,
 
     key = g_strconcat (gconfpath, "/long_description", NULL);
     gconf_client_set_string (gd->client, key, o->longDesc, NULL);
-    g_free (key);    
+    g_free (key);
 
     key = g_strconcat (gconfpath, "/type", NULL);
 
     type = o->type;
     if (type == CompOptionTypeList)
 	type = o->value.list.type;
-    
+
     switch (type) {
     case CompOptionTypeBool:
 	gconf_client_set_string (gd->client, key, "Bool", NULL);
@@ -717,13 +717,13 @@ gconfInitOption (CompDisplay *d,
     case CompOptionTypeString: {
 	GSList *list = NULL;
 	int    i;
-	    
+
 	for (i = 0; i < o->rest.s.nString; i++)
 	    list = g_slist_append (list, o->rest.s.string[i]);
-	
+
 	gconf_client_set_list (gd->client, key, GCONF_VALUE_STRING, list,
 			       NULL);
-	
+
 	g_slist_free (list);
     } break;
     default:
@@ -734,7 +734,7 @@ gconfInitOption (CompDisplay *d,
     key = g_strconcat (gconfpath, "/value", NULL);
 
     entry = gconf_client_get_entry (gd->client, key, NULL, FALSE, NULL);
-    
+
     if (!gconfGetOptionValue (d, entry))
 	gconfSetOption (d, o, screen, plugin);
 
@@ -774,7 +774,7 @@ gconfSetDisplayOption (CompDisplay     *d,
     Bool status;
 
     GCONF_DISPLAY (d);
-    
+
     UNWRAP (gd, d, setDisplayOption);
     status = (*d->setDisplayOption) (d, name, value);
     WRAP (gd, d, setDisplayOption, gconfSetDisplayOption);
@@ -783,12 +783,12 @@ gconfSetDisplayOption (CompDisplay     *d,
     {
 	CompOption *option;
 	int	   nOption;
-	
+
 	option = compGetDisplayOptions (d, &nOption);
 	gconfSetOption (d, compFindOption (option, nOption, name, 0),
 			"allscreens", 0);
     }
-    
+
     return status;
 }
 
@@ -809,19 +809,19 @@ gconfSetDisplayOptionForPlugin (CompDisplay     *d,
     if (status)
     {
 	CompPlugin *p;
-	
+
 	p = findActivePlugin (plugin);
 	if (p && p->vTable->getDisplayOptions)
 	{
 	    CompOption *option;
 	    int	       nOption;
-	
+
 	    option = (*p->vTable->getDisplayOptions) (d, &nOption);
 	    gconfSetOption (d, compFindOption (option, nOption, name, 0),
 			    "allscreens", plugin);
 	}
     }
-    
+
     return status;
 }
 
@@ -844,15 +844,15 @@ gconfSetScreenOption (CompScreen      *s,
 	int	   nOption;
 	gchar      *screen;
 
-	screen = g_strdup_printf ("screen%d", s->screenNum);    
-	
+	screen = g_strdup_printf ("screen%d", s->screenNum);
+
 	option = compGetScreenOptions (s, &nOption);
 	gconfSetOption (s->display, compFindOption (option, nOption, name, 0),
 			screen, 0);
 
 	g_free (screen);
     }
-    
+
     return status;
 }
 
@@ -873,14 +873,14 @@ gconfSetScreenOptionForPlugin (CompScreen      *s,
     if (status)
     {
 	CompPlugin *p;
-	
+
 	p = findActivePlugin (plugin);
 	if (p && p->vTable->getScreenOptions)
 	{
 	    CompOption *option;
 	    int	       nOption;
 	    gchar      *screen;
-	    
+
 	    screen = g_strdup_printf ("screen%d", s->screenNum);
 
 	    option = (*p->vTable->getScreenOptions) (s, &nOption);
@@ -891,7 +891,7 @@ gconfSetScreenOptionForPlugin (CompScreen      *s,
 	    g_free (screen);
 	}
     }
-    
+
     return status;
 }
 
@@ -914,7 +914,7 @@ gconfInitPluginForDisplay (CompPlugin  *p,
     {
 	CompOption *option;
 	int	   nOption;
-	
+
 	option = (*p->vTable->getDisplayOptions) (d, &nOption);
 	while (nOption--)
 	    gconfInitOption (d, option++, "allscreens", p->vTable->name);
@@ -946,7 +946,7 @@ gconfInitPluginForScreen (CompPlugin *p,
 	option = (*p->vTable->getScreenOptions) (s, &nOption);
 	while (nOption--)
 	    gconfInitOption (s->display, option++, screen, p->vTable->name);
-	
+
 	g_free (screen);
     }
 
@@ -960,7 +960,7 @@ gconfKeyChanged (GConfClient *client,
 		 gpointer    user_data)
 {
     CompDisplay *display = (CompDisplay *) user_data;
-    
+
     gconfGetOptionValue (display, entry);
 }
 
@@ -968,7 +968,7 @@ static Bool
 gconfTimeout (void *closure)
 {
     while (g_main_pending ()) g_main_iteration (FALSE);
-    
+
     return TRUE;
 }
 
@@ -979,7 +979,7 @@ gconfInitDisplay (CompPlugin  *p,
     CompOption   *option;
     int	         nOption;
     GConfDisplay *gd;
-    
+
     gd = malloc (sizeof (GConfDisplay));
     if (!gd)
 	return FALSE;
@@ -992,7 +992,7 @@ gconfInitDisplay (CompPlugin  *p,
     }
 
     gd->client = gconf_client_get_default ();
-    
+
     gconf_client_add_dir (gd->client, APP_NAME,
 			  GCONF_CLIENT_PRELOAD_NONE, NULL);
 
@@ -1010,7 +1010,7 @@ gconfInitDisplay (CompPlugin  *p,
 			     NULL, NULL);
 
     gd->timeoutHandle = compAddTimeout (KEY_CHANGE_TIMEOUT, gconfTimeout, 0);
-    
+
     return TRUE;
 }
 
@@ -1025,7 +1025,7 @@ gconfFiniDisplay (CompPlugin  *p,
     g_object_unref (gd->client);
 
     freeScreenPrivateIndex (d, gd->screenPrivateIndex);
-    
+
     free (gd);
 }
 
@@ -1036,7 +1036,7 @@ gconfInitScreen (CompPlugin *p,
     CompOption  *option;
     int	        nOption;
     GConfScreen *gs;
-    gchar       *screen;	
+    gchar       *screen;
 
     GCONF_DISPLAY (s->display);
 
@@ -1055,7 +1055,7 @@ gconfInitScreen (CompPlugin *p,
     option = compGetScreenOptions (s, &nOption);
     while (nOption--)
 	gconfInitOption (s->display, option++, screen, 0);
-	
+
     return TRUE;
 }
 
@@ -1074,10 +1074,10 @@ gconfInit (CompPlugin *p)
     displayPrivateIndex = allocateDisplayPrivateIndex ();
     if (displayPrivateIndex < 0)
 	return FALSE;
-	
+
     return TRUE;
 }
-    
+
 static void
 gconfFini (CompPlugin *p)
 {

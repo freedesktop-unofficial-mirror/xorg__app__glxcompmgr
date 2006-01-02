@@ -1,6 +1,6 @@
 /*
  * Copyright © 2005 Novell, Inc.
- * 
+ *
  * Permission to use, copy, modify, distribute, and sell this software
  * and its documentation for any purpose is hereby granted without
  * fee, provided that the above copyright notice appear in all copies
@@ -12,11 +12,11 @@
  * software for any purpose. It is provided "as is" without express or
  * implied warranty.
  *
- * NOVELL, INC. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, 
+ * NOVELL, INC. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
  * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN
  * NO EVENT SHALL NOVELL, INC. BE LIABLE FOR ANY SPECIAL, INDIRECT OR
  * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
- * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, 
+ * OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
  * NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION
  * WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
@@ -69,22 +69,27 @@ typedef struct _CompTexture CompTexture;
 
 #define OPAQUE 0xffff
 
-extern char     *programName;
-extern char     **programArgv;
-extern int      programArgc;
-extern char     *backgroundImage;
-extern char     *windowImage;
-extern REGION   emptyRegion;
-extern GLushort defaultColor[4];
-extern Window   currentRoot;
-extern Bool     testMode;
-extern Bool     restartSignal;
+extern char       *programName;
+extern char       **programArgv;
+extern int        programArgc;
+extern char       *backgroundImage;
+extern char       *windowImage;
+extern REGION     emptyRegion;
+extern REGION     infiniteRegion;
+extern GLushort   defaultColor[4];
+extern Window     currentRoot;
+extern Bool       testMode;
+extern Bool       restartSignal;
+extern CompWindow *lastFoundWindow;
+extern CompWindow *lastDamagedWindow;
 
 extern int  defaultRefreshRate;
 extern char *defaultTextureFilter;
 
 #define RESTRICT_VALUE(value, min, max)				     \
     (((value) < (min)) ? (min): ((value) > (max)) ? (max) : (value))
+
+#define MOD(a,b) ((a) < 0 ? ((b) - ((-(a) - 1) % (b))) - 1 : (a) % (b))
 
 
 /* privates.h */
@@ -100,7 +105,7 @@ typedef union _CompPrivate {
     void	  *ptr;
     long	  val;
     unsigned long uval;
-    void 	  *(*fptr) (void);
+    void	  *(*fptr) (void);
 } CompPrivate;
 
 typedef int (*ReallocPrivatesProc) (int size, void *closure);
@@ -207,7 +212,7 @@ typedef struct _CompOption {
     char		  *longDesc;
     CompOptionType	  type;
     CompOptionValue	  value;
-    CompOptionRestriction rest;    
+    CompOptionRestriction rest;
 } CompOption;
 
 typedef CompOption *(*DisplayOptionsProc) (CompDisplay *display, int *count);
@@ -257,11 +262,11 @@ compSetOptionList (CompOption      *option,
 typedef CompOption *(*GetDisplayOptionsProc) (CompDisplay *display,
 					      int	  *count);
 typedef Bool (*SetDisplayOptionProc) (CompDisplay     *display,
-				      char 	      *name,
+				      char	      *name,
 				      CompOptionValue *value);
 typedef Bool (*SetDisplayOptionForPluginProc) (CompDisplay     *display,
-					       char 	       *plugin,
-				      	       char 	       *name,
+					       char	       *plugin,
+					       char	       *name,
 					       CompOptionValue *value);
 
 typedef Bool (*InitPluginForDisplayProc) (CompPlugin  *plugin,
@@ -272,8 +277,6 @@ typedef void (*FiniPluginForDisplayProc) (CompPlugin  *plugin,
 
 typedef void (*HandleEventProc) (CompDisplay *display,
 				 XEvent	     *event);
-typedef void (*HandleDamageEventProc) (CompDisplay	  *display,
-				       XDamageNotifyEvent *event);
 
 typedef Bool (*CallBackProc) (void *closure);
 
@@ -286,7 +289,7 @@ struct _CompDisplay {
 
     int compositeEvent, compositeError, compositeOpcode;
     int damageEvent, damageError;
-    
+
     Bool shapeExtension;
     int  shapeEvent, shapeError;
 
@@ -316,15 +319,14 @@ struct _CompDisplay {
     CompOptionValue plugin;
     Bool	    dirtyPluginList;
 
-    SetDisplayOptionProc 	  setDisplayOption;
+    SetDisplayOptionProc	  setDisplayOption;
     SetDisplayOptionForPluginProc setDisplayOptionForPlugin;
 
     InitPluginForDisplayProc initPluginForDisplay;
     FiniPluginForDisplayProc finiPluginForDisplay;
 
-    HandleEventProc       handleEvent;
-    HandleDamageEventProc handleDamageEvent;
-    
+    HandleEventProc handleEvent;
+
     CompPrivate *privates;
 };
 
@@ -397,7 +399,7 @@ handleEvent (CompDisplay *display,
 	     XEvent      *event);
 
 void
-handleDamageEvent (CompDisplay	      *display,
+handleDamageEvent (CompWindow	      *window,
 		   XDamageNotifyEvent *event);
 
 
@@ -429,9 +431,14 @@ typedef struct _WindowPaintAttrib {
 extern ScreenPaintAttrib defaultScreenPaintAttrib;
 extern WindowPaintAttrib defaultWindowPaintAttrib;
 
-#define X_WINDOW_TO_TEXTURE_SPACE(w, _x) ((w)->texture.dx * (_x))
-#define Y_WINDOW_TO_TEXTURE_SPACE(w, _y) \
-    ((w)->texture.dy * ((w)->height - (_y)))
+typedef struct _CompMatrix {
+    float xx; float yx;
+    float xy; float yy;
+    float x0; float y0;
+} CompMatrix;
+
+#define COMP_TEX_COORD_X(m, vx, vy) ((m)->xx * (vx) + (m)->yx * (vy) + (m)->x0)
+#define COMP_TEX_COORD_Y(m, vx, vy) ((m)->xy * (vx) + (m)->yy * (vy) + (m)->y0)
 
 typedef void (*PreparePaintScreenProc) (CompScreen *screen,
 					int	   msSinceLastPaint);
@@ -457,12 +464,21 @@ typedef void (*PaintTransformedScreenProc) (CompScreen		    *screen,
 
 #define PAINT_WINDOW_SOLID_MASK			(1 << 0)
 #define PAINT_WINDOW_TRANSLUCENT_MASK		(1 << 1)
-#define PAINT_WINDOW_ON_TRANSFORMED_SCREEN_MASK (1 << 2)
+#define PAINT_WINDOW_TRANSFORMED_MASK           (1 << 2)
+#define PAINT_WINDOW_ON_TRANSFORMED_SCREEN_MASK (1 << 3)
 
 typedef Bool (*PaintWindowProc) (CompWindow		 *window,
 				 const WindowPaintAttrib *attrib,
 				 Region			 region,
 				 unsigned int		 mask);
+
+typedef void (*AddWindowGeometryProc) (CompWindow *window,
+				       CompMatrix *matrix,
+				       int	  nMatrix,
+				       Region	  region,
+				       Region	  clip);
+
+typedef void (*DrawWindowGeometryProc) (CompWindow *window);
 
 #define PAINT_BACKGROUND_ON_TRANSFORMED_SCREEN_MASK (1 << 0)
 #define PAINT_BACKGROUND_WITH_STENCIL_MASK          (1 << 1)
@@ -493,6 +509,24 @@ paintScreen (CompScreen		     *screen,
 	     unsigned int	     mask);
 
 Bool
+moreWindowVertices (CompWindow *w,
+		    int        newSize);
+
+Bool
+moreWindowIndices (CompWindow *w,
+		   int        newSize);
+
+void
+addWindowGeometry (CompWindow *w,
+		   CompMatrix *matrix,
+		   int	      nMatrix,
+		   Region     region,
+		   Region     clip);
+
+void
+drawWindowGeometry (CompWindow *w);
+
+Bool
 paintWindow (CompWindow		     *w,
 	     const WindowPaintAttrib *attrib,
 	     Region		     region,
@@ -519,6 +553,7 @@ struct _CompTexture {
     GLfloat	      dx, dy;
     GLXPixmap	      pixmap;
     CompTextureFilter filter;
+    CompMatrix        matrix;
 };
 
 void
@@ -584,16 +619,20 @@ typedef Bool    (*GLXQueryDrawableProc)   (Display	 *display,
 					   int		 attribute,
 					   unsigned int  *value);
 
+typedef void (*GLActiveTextureProc) (GLenum texture);
+typedef void (*GLClientActiveTextureProc) (GLenum texture);
+
+
 #define MAX_DEPTH 32
 
 typedef CompOption *(*GetScreenOptionsProc) (CompScreen *screen,
 					     int	*count);
 typedef Bool (*SetScreenOptionProc) (CompScreen      *screen,
-				     char 	     *name,
+				     char	     *name,
 				     CompOptionValue *value);
 typedef Bool (*SetScreenOptionForPluginProc) (CompScreen      *screen,
-					      char 	      *plugin,
-				      	      char 	      *name,
+					      char	      *plugin,
+					      char	      *name,
 					      CompOptionValue *value);
 
 typedef Bool (*InitPluginForScreenProc) (CompPlugin *plugin,
@@ -606,6 +645,12 @@ typedef void (*InvisibleWindowMoveProc) (CompWindow *w,
 					 int        dx,
 					 int        dy);
 
+typedef Bool (*DamageWindowRectProc) (CompWindow *w,
+				      Bool       initial,
+				      BoxPtr     rect);
+
+typedef Bool (*DamageWindowRegionProc) (CompWindow *w,
+					Region     region);
 
 typedef struct _CompKeyGrab {
     int		 keycode;
@@ -647,13 +692,13 @@ struct _CompScreen {
     XVisualInfo       *glxPixmapVisuals[MAX_DEPTH + 1];
     int		      textureRectangle;
     int		      textureNonPowerOfTwo;
+    int		      textureEnvCombine;
+    int		      maxTextureUnits;
     Cursor	      invisibleCursor;
     XRectangle        *exposeRects;
     int		      sizeExpose;
     int		      nExpose;
     CompTexture       backgroundTexture;
-    int		      backgroundWidth;
-    int		      backgroundHeight;
     unsigned int      pendingDestroys;
     int		      desktopWindowCount;
     KeyCode	      escapeKeyCode;
@@ -666,9 +711,9 @@ struct _CompScreen {
     CompGrab *grabs;
     int	     grabSize;
     int	     maxGrab;
-    
+
     int		   rasterX;
-    int 	   rasterY;
+    int		   rasterY;
     struct timeval lastRedraw;
     int		   nextRedraw;
     int		   redrawTime;
@@ -676,11 +721,14 @@ struct _CompScreen {
     GLint stencilRef;
 
     Window activeWindow;
-    
+
     GLXGetProcAddressProc  getProcAddress;
     GLXBindTexImageProc    bindTexImage;
     GLXReleaseTexImageProc releaseTexImage;
     GLXQueryDrawableProc   queryDrawable;
+
+    GLActiveTextureProc       activeTexture;
+    GLClientActiveTextureProc clientActiveTexture;
 
     GLXContext ctx;
 
@@ -698,7 +746,11 @@ struct _CompScreen {
     PaintTransformedScreenProc paintTransformedScreen;
     PaintBackgroundProc        paintBackground;
     PaintWindowProc	       paintWindow;
+    AddWindowGeometryProc      addWindowGeometry;
+    DrawWindowGeometryProc     drawWindowGeometry;
     InvisibleWindowMoveProc    invisibleWindowMove;
+    DamageWindowRectProc       damageWindowRect;
+    DamageWindowRegionProc     damageWindowRegion;
 
     CompPrivate *privates;
 };
@@ -773,8 +825,9 @@ updatePassiveGrabs (CompScreen *s);
 
 /* window.c */
 
-#define WINDOW_INVISIBLE(w) 		    \
+#define WINDOW_INVISIBLE(w)		    \
     ((w)->attrib.map_state != IsViewable || \
+     (!(w)->damaged)			 || \
      (w)->attrib.x + (w)->width  <= 0    || \
      (w)->attrib.y + (w)->height <= 0    || \
      (w)->attrib.x >= (w)->screen->width || \
@@ -796,6 +849,7 @@ struct _CompWindow {
     XWindowAttributes attrib;
     Pixmap	      pixmap;
     CompTexture       texture;
+    CompMatrix        matrix;
     Damage	      damage;
     Bool	      alpha;
     GLint	      width;
@@ -806,7 +860,15 @@ struct _CompWindow {
     Bool	      invisible;
     GLushort	      opacity;
     Bool	      destroyed;
-    
+    Bool	      damaged;
+
+    GLfloat  *vertices;
+    int      vertexSize;
+    GLushort *indices;
+    int      indexSize;
+    int      vCount;
+    int      texUnits;
+
     CompPrivate *privates;
 };
 
@@ -867,6 +929,15 @@ circulateWindow (CompWindow	 *w,
 void
 addWindowDamage (CompWindow *w);
 
+Bool
+damageWindowRect (CompWindow *w,
+		  Bool       initial,
+		  BoxPtr     rect);
+
+Bool
+damageWindowRegion (CompWindow *w,
+		    Region     region);
+
 void
 invisibleWindowMove (CompWindow *w,
 		     int        dx,
@@ -882,7 +953,7 @@ typedef struct _CompPluginVTable {
     char *name;
     char *shortDesc;
     char *longDesc;
-    
+
     InitPluginProc init;
     FiniPluginProc fini;
 

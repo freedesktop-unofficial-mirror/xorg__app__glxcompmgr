@@ -29,16 +29,21 @@
 
 #include <comp.h>
 
+static CompMatrix _identity_matrix = {
+    1, 0,
+    0, 1,
+    0, 0
+};
+
 void
 initTexture (CompScreen  *screen,
 	     CompTexture *texture)
 {
     texture->name   = 0;
     texture->target = GL_TEXTURE_2D;
-    texture->dx     = 0.0f;
-    texture->dy     = 0.0f;
     texture->pixmap = None;
     texture->filter = COMP_TEXTURE_FILTER_FAST;
+    texture->matrix = _identity_matrix;
 }
 
 void
@@ -90,13 +95,16 @@ readImageToTexture (CompScreen   *screen,
 	(POWER_OF_TWO (width) && POWER_OF_TWO (height)))
     {
 	texture->target = GL_TEXTURE_2D;
-	texture->dx = 1.0f / width;
-	texture->dy = 1.0f / height;
+	texture->matrix.xx = 1.0f / width;
+	texture->matrix.yy = -1.0f / height;
+	texture->matrix.y0 = 1.0f;
     }
     else
     {
 	texture->target = GL_TEXTURE_RECTANGLE_NV;
-	texture->dx = texture->dy = 1.0f;
+	texture->matrix.xx = 1.0f;
+	texture->matrix.yy = -1.0f;
+	texture->matrix.y0 = height;
     }
 
     if (!texture->name)
@@ -119,8 +127,8 @@ readImageToTexture (CompScreen   *screen,
     glTexParameteri (texture->target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri (texture->target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-    glTexParameteri (texture->target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri (texture->target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri (texture->target, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri (texture->target, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
     glBindTexture (texture->target, 0);
 
@@ -177,12 +185,15 @@ bindPixmapToTexture (CompScreen  *screen,
     switch (target) {
     case GLX_TEXTURE_2D_EXT:
 	texture->target = GL_TEXTURE_2D;
-	texture->dx = 1.0f / width;
-	texture->dy = 1.0f / height;
+	texture->matrix.xx = 1.0f / width;
+	texture->matrix.yy = -1.0f / height;
+	texture->matrix.y0 = 1.0f;
 	break;
     case GLX_TEXTURE_RECTANGLE_EXT:
 	texture->target = GL_TEXTURE_RECTANGLE_ARB;
-	texture->dx = texture->dy = 1.0f;
+	texture->matrix.xx = 1.0f;
+	texture->matrix.yy = -1.0f;
+	texture->matrix.y0 = height;
 	break;
     default:
 	fprintf (stderr, "%s: pixmap 0x%x can't be bound to texture\n",

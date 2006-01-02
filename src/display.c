@@ -1010,8 +1010,7 @@ addDisplay (char *name,
     d->initPluginForDisplay = initPluginForDisplay;
     d->finiPluginForDisplay = finiPluginForDisplay;
 
-    d->handleEvent       = handleEvent;
-    d->handleDamageEvent = handleDamageEvent;
+    d->handleEvent = handleEvent;
 
     d->winTypeAtom    = XInternAtom (dpy, "_NET_WM_WINDOW_TYPE", 0);
     d->winDesktopAtom = XInternAtom (dpy, "_NET_WM_WINDOW_TYPE_DESKTOP", 0);
@@ -1135,14 +1134,21 @@ CompWindow *
 findWindowAtDisplay (CompDisplay *d,
 		     Window      id)
 {
-    CompScreen *s;
-    CompWindow *w;
-
-    for (s = d->screens; s; s = s->next)
+    if (lastFoundWindow && lastFoundWindow->id == id)
     {
-	w = findWindowAtScreen (s, id);
-	if (w)
-	    return w;
+	return lastFoundWindow;
+    }
+    else
+    {
+	CompScreen *s;
+	CompWindow *w;
+
+	for (s = d->screens; s; s = s->next)
+	{
+	    w = findWindowAtScreen (s, id);
+	    if (w)
+		return w;
+	}
     }
 
     return 0;

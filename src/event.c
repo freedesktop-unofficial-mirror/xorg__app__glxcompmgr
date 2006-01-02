@@ -230,39 +230,45 @@ handleEvent (CompDisplay *display,
 	}
 	else if (event->type == display->damageEvent + XDamageNotify)
 	{
-	    (*display->handleDamageEvent) (display,
-					   (XDamageNotifyEvent *) event);
+	    XDamageNotifyEvent *de = (XDamageNotifyEvent *) event;
+
+	    if (lastDamagedWindow && de->drawable == lastDamagedWindow->id)
+	    {
+		w = lastDamagedWindow;
+	    }
+	    else
+	    {
+		w = findWindowAtDisplay (display, de->drawable);
+		if (w)
+		    lastDamagedWindow = w;
+	    }
+
+	    if (w)
+	    {
+		REGION region;
+		Bool   initial = FALSE;
+
+		if (!w->damaged)
+		{
+		    w->damaged = initial = TRUE;
+		    w->invisible = WINDOW_INVISIBLE (w);
+		}
+
+		region.extents.x1 = de->geometry.x + de->area.x;
+		region.extents.y1 = de->geometry.y + de->area.y;
+		region.extents.x2 = region.extents.x1 + de->area.width;
+		region.extents.y2 = region.extents.y1 + de->area.height;
+
+		if (!(*w->screen->damageWindowRect) (w, initial, 
+						     &region.extents))
+		{
+		    region.rects = &region.extents;
+		    region.numRects = region.size = 1;
+
+		    damageScreenRegion (w->screen, &region);
+		}
+	    }
 	}
 	break;
     }
-}
-
-void
-handleDamageEvent (CompDisplay	      *display,
-		   XDamageNotifyEvent *event)
-{
-    CompScreen *screen;
-    REGION     rect;
-
-    rect.rects = &rect.extents;
-    rect.numRects = rect.size = 1;
-
-    screen = display->screens;
-    if (screen->next)
-    {
-	CompWindow *w;
-
-	w = findWindowAtDisplay (display, event->drawable);
-	if (!w)
-	    return;
-
-	screen = w->screen;
-    }
-
-    rect.extents.x1 = event->geometry.x + event->area.x;
-    rect.extents.y1 = event->geometry.y + event->area.y;
-    rect.extents.x2 = rect.extents.x1 + event->area.width;
-    rect.extents.y2 = rect.extents.y1 + event->area.height;
-
-    damageScreenRegion (screen, &rect);
 }

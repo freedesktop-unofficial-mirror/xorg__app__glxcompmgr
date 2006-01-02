@@ -346,9 +346,6 @@ updateScreenBackground (CompScreen  *screen,
 	glTexParameteri (texture->target, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glBindTexture (texture->target, 0);
     }
-
-    screen->backgroundWidth  = width;
-    screen->backgroundHeight = height;
 }
 
 Bool
@@ -530,7 +527,11 @@ addScreen (CompDisplay *display,
     s->paintTransformedScreen = paintTransformedScreen;
     s->paintBackground        = paintBackground;
     s->paintWindow            = paintWindow;
+    s->addWindowGeometry      = addWindowGeometry;
+    s->drawWindowGeometry     = drawWindowGeometry;
     s->invisibleWindowMove    = invisibleWindowMove;
+    s->damageWindowRect       = damageWindowRect;
+    s->damageWindowRegion     = damageWindowRegion;
 
     s->getProcAddress = 0;
 
@@ -714,12 +715,14 @@ addScreen (CompDisplay *display,
 	return FALSE;
     }
 
+    s->textureRectangle = 0;
     glExtensions = (const char *) glGetString (GL_EXTENSIONS);
     if (strstr (glExtensions, "GL_NV_texture_rectangle")  ||
 	strstr (glExtensions, "GL_EXT_texture_rectangle") ||
 	strstr (glExtensions, "GL_ARB_texture_rectangle"))
 	s->textureRectangle = 1;
 
+    s->textureNonPowerOfTwo = 0;
     if (strstr (glExtensions, "GL_ARB_texture_non_power_of_two"))
 	s->textureNonPowerOfTwo = 1;
 
@@ -728,6 +731,22 @@ addScreen (CompDisplay *display,
 	fprintf (stderr, "%s: Support for non power of two textures missing\n",
 		 programName);
 	return FALSE;
+    }
+
+    s->textureEnvCombine = 0;
+    if (strstr (glExtensions, "GL_ARB_texture_env_combine"))
+	s->textureEnvCombine = 1;
+
+    s->maxTextureUnits = 1;
+    if (strstr (glExtensions, "GL_ARB_multitexture"))
+    {
+	s->activeTexture = (GLActiveTextureProc)
+	    getProcAddress (s, "glActiveTexture");
+	s->clientActiveTexture = (GLClientActiveTextureProc)
+	    getProcAddress (s, "glClientActiveTexture");
+
+	if (s->activeTexture && s->clientActiveTexture)
+	    glGetIntegerv (GL_MAX_TEXTURE_UNITS_ARB, &s->maxTextureUnits);
     }
 
     initTexture (s, &s->backgroundTexture);
@@ -747,9 +766,18 @@ addScreen (CompDisplay *display,
     glEnable (GL_CULL_FACE);
     glDisable (GL_BLEND);
     glTexEnvi (GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);
+    glColor4usv (defaultColor);
     glEnableClientState (GL_VERTEX_ARRAY);
     glEnableClientState (GL_TEXTURE_COORD_ARRAY);
-    glColor4usv (defaultColor);
+
+    for (i = 1; i < s->maxTextureUnits; i++)
+    {
+	s->clientActiveTexture (GL_TEXTURE0_ARB + i);
+	glEnableClientState (GL_TEXTURE_COORD_ARRAY);
+    }
+
+    if (s->maxTextureUnits > 1)
+	s->clientActiveTexture (GL_TEXTURE0_ARB);
 
     s->activeWindow = getActiveWindow (display, s->root);
 
@@ -806,11 +834,18 @@ CompWindow *
 findWindowAtScreen (CompScreen *s,
 		    Window     id)
 {
-    CompWindow *w;
+    if (lastFoundWindow && lastFoundWindow->id == id)
+    {
+	return lastFoundWindow;
+    }
+    else
+    {
+	CompWindow *w;
 
-    for (w = s->windows; w; w = w->next)
-	if (w->id == id)
-	    return w;
+	for (w = s->windows; w; w = w->next)
+	    if (w->id == id)
+		return (lastFoundWindow = w);
+    }
 
     return 0;
 }
@@ -819,11 +854,18 @@ CompWindow *
 findClientWindowAtScreen (CompScreen *s,
 			  Window     id)
 {
-    CompWindow *w;
+    if (lastFoundWindow && lastFoundWindow->client == id)
+    {
+	return lastFoundWindow;
+    }
+    else
+    {
+	CompWindow *w;
 
-    for (w = s->windows; w; w = w->next)
-	if (w->client == id)
-	    return w;
+	for (w = s->windows; w; w = w->next)
+	    if (w->client == id)
+		return (lastFoundWindow = w);
+    }
 
     return 0;
 }

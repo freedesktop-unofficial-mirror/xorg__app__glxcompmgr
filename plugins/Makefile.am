@@ -22,6 +22,10 @@ libwobbly_la_LDFLAGS = -avoid-version
 libwobbly_la_LIBADD = @GLXCOMP_LIBS@
 libwobbly_la_SOURCES = wobbly.c
 
+libshadow_la_LDFLAGS = -avoid-version
+libshadow_la_LIBADD = @GLXCOMP_LIBS@
+libshadow_la_SOURCES = shadow.c
+
 if GCONF_PLUGIN
 libgconf_la_LDFLAGS = -avoid-version
 libgconf_la_LIBADD = @GLXCOMP_LIBS@ @GCONF_LIBS@
@@ -46,4 +50,5 @@ module_LTLIBRARIES =	    \
 	libzoom.la	    \
 	libexpose.la	    \
 	libwobbly.la	    \
+	libshadow.la	    \
 	$(libgconf_library)

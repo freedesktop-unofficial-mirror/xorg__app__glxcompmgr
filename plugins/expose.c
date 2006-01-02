@@ -79,6 +79,7 @@ typedef struct _ExposeScreen {
     DonePaintScreenProc    donePaintScreen;
     PaintScreenProc        paintScreen;
     PaintWindowProc        paintWindow;
+    DamageWindowRectProc   damageWindowRect;
 
     CompOption opt[EXPOSE_SCREEN_OPTION_NUM];
 
@@ -273,6 +274,8 @@ exposePaintWindow (CompWindow		   *w,
 	exposeAttrib.yTranslate += ew->ty;
 	exposeAttrib.xScale *= ew->scale;
 	exposeAttrib.yScale *= ew->scale;
+
+	mask |= PAINT_WINDOW_TRANSFORMED_MASK;
 
 	UNWRAP (es, s, paintWindow);
 	status = (*s->paintWindow) (w, &exposeAttrib, region, mask);
@@ -861,16 +864,20 @@ exposeHandleEvent (CompDisplay *d,
     UNWRAP (ed, d, handleEvent);
     (*d->handleEvent) (d, event);
     WRAP (ed, d, handleEvent, exposeHandleEvent);
+}
 
-    switch (event->type) {
-    case CreateNotify:
-    case MapNotify: {
-	CompWindow *w;
+static Bool
+exposeDamageWindowRect (CompWindow *w,
+			Bool	   initial,
+			BoxPtr     rect)
+{
+    Bool status;
 
-	w = findWindowAtDisplay (d, (event->type == CreateNotify) ?
-				 event->xcreatewindow.window :
-				 event->xmap.window);
-	if (w && isExposeWin (w))
+    EXPOSE_SCREEN (w->screen);
+
+    if (initial)
+    {
+	if (isExposeWin (w))
 	{
 	    EXPOSE_SCREEN (w->screen);
 
@@ -882,10 +889,14 @@ exposeHandleEvent (CompDisplay *d,
 	    }
 	}
     }
-    default:
-	break;
-    }
+
+    UNWRAP (es, w->screen, damageWindowRect);
+    status = (*w->screen->damageWindowRect) (w, initial, rect);
+    WRAP (es, w->screen, damageWindowRect, exposeDamageWindowRect);
+
+    return status;
 }
+
 
 static Bool
 exposeInitDisplay (CompPlugin  *p,
@@ -968,6 +979,7 @@ exposeInitScreen (CompPlugin *p,
     WRAP (es, s, donePaintScreen, exposeDonePaintScreen);
     WRAP (es, s, paintScreen, exposePaintScreen);
     WRAP (es, s, paintWindow, exposePaintWindow);
+    WRAP (es, s, damageWindowRect, exposeDamageWindowRect);
 
     es->cursor = XCreateFontCursor (s->display->display, XC_left_ptr);
 
@@ -986,6 +998,7 @@ exposeFiniScreen (CompPlugin *p,
     UNWRAP (es, s, donePaintScreen);
     UNWRAP (es, s, paintScreen);
     UNWRAP (es, s, paintWindow);
+    UNWRAP (es, s, damageWindowRect);
 
     if (es->slotsSize)
 	free (es->slots);

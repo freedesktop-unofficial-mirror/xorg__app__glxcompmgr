@@ -371,17 +371,21 @@ rotatePreparePaintScreen (CompScreen *s,
 
 	    if (fabs (rs->yrot) < 0.1f)
 	    {
-		int move;
+		float xrot;
+		int   tx, m, wx;
 
-		rs->xrot += rs->baseXrot;
-		if (rs->xrot < 0.0f)
-		    move = (rs->xrot / 90.0f) - 0.5f;
+		xrot = rs->baseXrot + rs->xrot;
+		if (xrot < 0.0f)
+		    tx = ((xrot / 90.0f) - 0.5f);
 		else
-		    move = (rs->xrot / 90.0f) + 0.5f;
+		    tx = ((xrot / 90.0f) + 0.5f);
 
-		if (move)
+		tx = MOD (tx, 4);
+		if (tx)
 		{
 		    CompWindow *w;
+
+		    tx *= s->width;
 
 		    for (w = s->windows; w; w = w->next)
 		    {
@@ -392,7 +396,15 @@ rotatePreparePaintScreen (CompScreen *s,
 			    w->type == s->display->winDockAtom)
 			    continue;
 
-			(*s->invisibleWindowMove) (w, s->width * move, 0);
+			m = w->attrib.x + tx;
+			if (m < s->width * -3)
+			    wx = s->width * 4 + tx;
+			else if (m > s->width * 3)
+			    wx = tx - s->width * 4;
+			else
+			    wx = tx;
+
+			(*s->invisibleWindowMove) (w, wx, 0);
 
 			w->invisible = WINDOW_INVISIBLE (w);
 
@@ -555,6 +567,7 @@ static void
 rotateHandleEvent (CompDisplay *d,
 		   XEvent      *event)
 {
+    Window     activeWindow = 0;
     CompScreen *s;
 
     ROTATE_DISPLAY (d);
@@ -647,6 +660,16 @@ rotateHandleEvent (CompDisplay *d,
 		return;
 	    }
 	}
+	break;
+    case PropertyNotify:
+	if (event->xproperty.atom == d->winActiveAtom)
+	{
+	    CompScreen *s;
+
+	    s = findScreenAtDisplay (d, event->xproperty.window);
+	    if (s)
+		activeWindow = s->activeWindow;
+	}
     default:
 	break;
     }
@@ -654,6 +677,47 @@ rotateHandleEvent (CompDisplay *d,
     UNWRAP (rd, d, handleEvent);
     (*d->handleEvent) (d, event);
     WRAP (rd, d, handleEvent, rotateHandleEvent);
+
+    switch (event->type) {
+    case PropertyNotify:
+	if (event->xproperty.atom == d->winActiveAtom)
+	{
+	    CompScreen *s;
+
+	    s = findScreenAtDisplay (d, event->xproperty.window);
+	    if (s && s->activeWindow != activeWindow)
+	    {
+		CompWindow *w;
+
+		w = findClientWindowAtScreen (s, s->activeWindow);
+		if (w)
+		{
+		    Window	 win;
+		    int		 i, x, y, wx;
+		    unsigned int ui;
+
+		    XQueryPointer (d->display, s->root,
+				   &win, &win, &x, &y, &i, &i, &ui);
+
+		    if (w->attrib.x > s->width)
+		    {
+			wx = w->attrib.x / s->width;
+			while (wx--)
+			    rotateRight (s, x, y);
+
+		    }
+		    else if (w->attrib.x + w->width < 0)
+		    {
+			wx = 1 - (w->attrib.x + w->width) / s->width;
+			while (wx--)
+			    rotateLeft (s, x, y);
+		    }
+		}
+	    }
+	}
+    default:
+	break;
+    }
 }
 
 static Bool
