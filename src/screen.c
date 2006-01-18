@@ -689,22 +689,28 @@ addScreen (CompDisplay *display,
 
     s->getProcAddress = (GLXGetProcAddressProc)
 	getProcAddress (s, "glXGetProcAddressARB");
-    s->bindTexImage = (GLXBindTexImageProc)
+    s->bindTexImageExt = (GLXBindTexImageExtProc)
+        getProcAddress (s, "glXBindTexImageEXT");
+    s->bindTexImageMesa = (GLXBindTexImageMesaProc)
 	getProcAddress (s, "glXBindTexImageMESA");
     s->releaseTexImage = (GLXReleaseTexImageProc)
-	getProcAddress (s, "glXReleaseTexImageMESA");
+	getProcAddress (s, "glXReleaseTexImageEXT");
+    if (!s->releaseTexImage)
+        s->releaseTexImage = (GLXReleaseTexImageProc)
+            getProcAddress (s, "glXReleaseTexImageMESA");
     s->queryDrawable = (GLXQueryDrawableProc)
 	getProcAddress (s, "glXQueryDrawable");
 
-    if (!testMode && !s->bindTexImage)
+    if (!testMode && !s->bindTexImageExt && !s->bindTexImageMesa)
     {
-	fprintf (stderr, "%s: glXBindTexImageMESA is missing\n", programName);
+	fprintf (stderr, "%s: glXBindTexImage{EXT,MESA} are missing\n",
+                 programName);
 	return FALSE;
     }
 
     if (!testMode && !s->releaseTexImage)
     {
-	fprintf (stderr, "%s: glXReleaseTexImageMESA is missing\n",
+	fprintf (stderr, "%s: glXReleaseTexImage{EXT,MESA} are missing\n",
 		 programName);
 	return FALSE;
     }

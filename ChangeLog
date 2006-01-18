@@ -1,0 +1,10 @@
+2006-01-18  Adam Jackson <ajax@freedesktop.org>
+
+	* include/comp.h:
+	* src/screen.c:
+	* src/texture.c:
+	Allow using EXT_texture_from_drawable as well as MESA_render_texture.
+
+2005-12-31  Zack Rusin  <zack@freedesktop.org>
+
+	Initial import.  (David Reveman)

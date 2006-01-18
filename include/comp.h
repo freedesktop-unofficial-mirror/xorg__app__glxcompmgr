@@ -608,9 +608,13 @@ typedef FuncPtr (*GLXGetProcAddressProc) (const GLubyte *procName);
 #define GLX_FRONT_LEFT_EXT                  0x6005
 #endif
 
-typedef Bool    (*GLXBindTexImageProc)    (Display	 *display,
+typedef Bool    (*GLXBindTexImageMesaProc)(Display	 *display,
 					   GLXDrawable	 drawable,
 					   int		 buffer);
+typedef Bool    (*GLXBindTexImageExtProc) (Display       *display,
+                                           GLXDrawable   drawable,
+                                           int           buffer,
+                                           const int     *attrib_list);
 typedef Bool    (*GLXReleaseTexImageProc) (Display	 *display,
 					   GLXDrawable	 drawable,
 					   int		 buffer);
@@ -722,10 +726,11 @@ struct _CompScreen {
 
     Window activeWindow;
 
-    GLXGetProcAddressProc  getProcAddress;
-    GLXBindTexImageProc    bindTexImage;
-    GLXReleaseTexImageProc releaseTexImage;
-    GLXQueryDrawableProc   queryDrawable;
+    GLXGetProcAddressProc   getProcAddress;
+    GLXBindTexImageMesaProc bindTexImageMesa;
+    GLXBindTexImageExtProc  bindTexImageExt;
+    GLXReleaseTexImageProc  releaseTexImage;
+    GLXQueryDrawableProc    queryDrawable;
 
     GLActiveTextureProc       activeTexture;
     GLClientActiveTextureProc clientActiveTexture;

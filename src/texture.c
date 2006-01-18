@@ -150,6 +150,7 @@ bindPixmapToTexture (CompScreen  *screen,
 {
     XVisualInfo  *visinfo;
     unsigned int target;
+    int success = 0;
 
     visinfo = screen->glxPixmapVisuals[depth];
     if (!visinfo)
@@ -210,9 +211,17 @@ bindPixmapToTexture (CompScreen  *screen,
 
     glBindTexture (texture->target, texture->name);
 
-    if (!screen->bindTexImage (screen->display->display,
-			       texture->pixmap,
-			       GLX_FRONT_LEFT_EXT))
+    if (screen->bindTexImageExt)
+        success = screen->bindTexImageExt(screen->display->display,
+                                          texture->pixmap,
+                                          GLX_FRONT_LEFT_EXT,
+                                          NULL);
+    else if (screen->bindTexImageMesa)
+        success = screen->bindTexImageMesa(screen->display->display,
+                                           texture->pixmap,
+                                           GLX_FRONT_LEFT_EXT);
+
+    if (!success)
     {
 	fprintf (stderr, "%s: glXBindTexImage failed\n", programName);
 
