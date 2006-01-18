@@ -5,6 +5,9 @@
 	* src/texture.c:
 	Allow using EXT_texture_from_drawable as well as MESA_render_texture.
 
+	* src/screen.c:
+	Also check for EXT_tfd in the GLX extension string.
+
 2005-12-31  Zack Rusin  <zack@freedesktop.org>
 
 	Initial import.  (David Reveman)
