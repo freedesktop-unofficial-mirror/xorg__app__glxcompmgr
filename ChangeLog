@@ -8,6 +8,9 @@
 	* src/screen.c:
 	Also check for EXT_tfd in the GLX extension string.
 
+	* plugins/Makefile.am:
+	Deconfuse automake.
+
 2005-12-31  Zack Rusin  <zack@freedesktop.org>
 
 	Initial import.  (David Reveman)

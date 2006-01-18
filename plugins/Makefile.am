@@ -30,7 +30,8 @@ if GCONF_PLUGIN
 libgconf_la_LDFLAGS = -avoid-version
 libgconf_la_LIBADD = @GLXCOMP_LIBS@ @GCONF_LIBS@
 libgconf_la_SOURCES = gconf.c
-libgconf_library = libgconf.la
+libgconf_LTLIBRARIES = libgconf.la
+libgconfdir = $(plugindir)
 libgconf_includes = @GCONF_CFLAGS@
 endif
 
@@ -43,12 +44,10 @@ INCLUDES =			\
 moduledir = $(plugindir)
 
 module_LTLIBRARIES =	    \
-	libgconf.la	    \
 	libfade.la	    \
 	libcube.la	    \
 	librotate.la	    \
 	libzoom.la	    \
 	libexpose.la	    \
 	libwobbly.la	    \
-	libshadow.la	    \
-	$(libgconf_library)
+	libshadow.la
