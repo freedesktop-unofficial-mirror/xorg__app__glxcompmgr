@@ -1,4 +1,9 @@
-2006-01-18  Adam Jackson <ajax@freedesktop.org>
+2006-02-13  Adam Jackson  <ajax@freedesktop.org>
+
+	* src/screen.c:
+	Minimal hack to enable EXT_texture_from_pixmap.
+
+2006-01-18  Adam Jackson  <ajax@freedesktop.org>
 
 	* include/comp.h:
 	* src/screen.c:

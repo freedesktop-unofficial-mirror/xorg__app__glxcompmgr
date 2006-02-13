@@ -681,7 +681,8 @@ addScreen (CompDisplay *display,
 
     glxExtensions = glXQueryExtensionsString (s->display->display, screenNum);
     if (!testMode && !strstr (glxExtensions, "GLX_MESA_render_texture")
-        && !strstr(glxExtensions, "GLX_EXT_texture_from_drawable"))
+        && !strstr(glxExtensions, "GLX_EXT_texture_from_drawable")
+        && !strstr(glxExtensions, "GLX_EXT_texture_from_pixmap"))
     {
 	fprintf (stderr, "%s: GLX_MESA_render_texture is missing\n",
 		 programName);
