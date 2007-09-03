@@ -11,3 +11,4 @@ configure
 glxcomp.pc
 libtool
 stamp-h1
+*~
